@@ -1,0 +1,847 @@
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/bin/uvicorn", line 8, in <module>
+    sys.exit(main())
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1161, in __call__
+    return self.main(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1082, in main
+    rv = self.invoke(ctx)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1443, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 788, in invoke
+    return __callback(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 409, in main
+    run(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 575, in run
+    server.run()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 65, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/base_events.py", line 642, in run_until_complete
+    return future.result()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 69, in serve
+    await self._serve(sockets)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 76, in _serve
+    config.load()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/config.py", line 433, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/importlib/__init__.py", line 127, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1030, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1007, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 986, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 680, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/main.py", line 2, in <module>
+    from app import models
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/models.py", line 19, in <module>
+    class User(Base):
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/models.py", line 25, in User
+    email: Mapped[str | None] = mapped_column(String(255), unique=True)
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/bin/uvicorn", line 8, in <module>
+    sys.exit(main())
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1161, in __call__
+    return self.main(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1082, in main
+    rv = self.invoke(ctx)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1443, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 788, in invoke
+    return __callback(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 409, in main
+    run(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 575, in run
+    server.run()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 65, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/base_events.py", line 642, in run_until_complete
+    return future.result()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 69, in serve
+    await self._serve(sockets)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 76, in _serve
+    config.load()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/config.py", line 433, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/importlib/__init__.py", line 127, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1030, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1007, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 986, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 680, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/main.py", line 2, in <module>
+    from app import models
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/models.py", line 19, in <module>
+    class User(Base):
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/models.py", line 25, in User
+    email: Mapped[str | None] = mapped_column(String(255), unique=True)
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/util/typing.py", line 230, in eval_expression
+    annotation = eval(expression, cls_namespace, locals_)
+  File "<string>", line 1, in <module>
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 1541, in _extract_mappable_attributes
+    value.declarative_scan(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/properties.py", line 708, in declarative_scan
+    self._init_column_for_annotation(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/properties.py", line 744, in _init_column_for_annotation
+    argument = de_stringify_annotation(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/util/typing.py", line 156, in de_stringify_annotation
+    annotation = eval_expression(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/util/typing.py", line 234, in eval_expression
+    raise NameError(
+NameError: Could not de-stringify annotation 'str | None'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/bin/uvicorn", line 8, in <module>
+    sys.exit(main())
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1161, in __call__
+    return self.main(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1082, in main
+    rv = self.invoke(ctx)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1443, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 788, in invoke
+    return __callback(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 409, in main
+    run(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 575, in run
+    server.run()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 65, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/base_events.py", line 642, in run_until_complete
+    return future.result()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 69, in serve
+    await self._serve(sockets)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 76, in _serve
+    config.load()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/config.py", line 433, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/importlib/__init__.py", line 127, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1030, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1007, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 986, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 680, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/main.py", line 2, in <module>
+    from app import models
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/models.py", line 21, in <module>
+    class User(Base):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_api.py", line 836, in __init_subclass__
+    _as_declarative(cls._sa_registry, cls, cls.__dict__)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 244, in _as_declarative
+    return _MapperConfig.setup_mapping(registry, cls, dict_, None, {})
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 325, in setup_mapping
+    return _ClassScanMapperConfig(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 571, in __init__
+    self._extract_mappable_attributes()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 1553, in _extract_mappable_attributes
+    raise exc.ArgumentError(
+sqlalchemy.exc.ArgumentError: Could not resolve all types within mapped annotation: "Mapped[str | None]".  Ensure all types are written correctly and are imported within the module in use.
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/util/typing.py", line 230, in eval_expression
+    annotation = eval(expression, cls_namespace, locals_)
+  File "<string>", line 1, in <module>
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 1541, in _extract_mappable_attributes
+    value.declarative_scan(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/properties.py", line 708, in declarative_scan
+    self._init_column_for_annotation(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/properties.py", line 744, in _init_column_for_annotation
+    argument = de_stringify_annotation(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/util/typing.py", line 156, in de_stringify_annotation
+    annotation = eval_expression(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/util/typing.py", line 234, in eval_expression
+    raise NameError(
+NameError: Could not de-stringify annotation 'str | None'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/bin/uvicorn", line 8, in <module>
+    sys.exit(main())
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1161, in __call__
+    return self.main(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1082, in main
+    rv = self.invoke(ctx)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1443, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 788, in invoke
+    return __callback(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 409, in main
+    run(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 575, in run
+    server.run()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 65, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/base_events.py", line 642, in run_until_complete
+    return future.result()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 69, in serve
+    await self._serve(sockets)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 76, in _serve
+    config.load()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/config.py", line 433, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/importlib/__init__.py", line 127, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1030, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1007, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 986, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 680, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/main.py", line 2, in <module>
+    from app import models
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/models.py", line 21, in <module>
+    class User(Base):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_api.py", line 836, in __init_subclass__
+    _as_declarative(cls._sa_registry, cls, cls.__dict__)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 244, in _as_declarative
+    return _MapperConfig.setup_mapping(registry, cls, dict_, None, {})
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 325, in setup_mapping
+    return _ClassScanMapperConfig(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 571, in __init__
+    self._extract_mappable_attributes()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 1553, in _extract_mappable_attributes
+    raise exc.ArgumentError(
+sqlalchemy.exc.ArgumentError: Could not resolve all types within mapped annotation: "Mapped[str | None]".  Ensure all types are written correctly and are imported within the module in use.
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/util/typing.py", line 230, in eval_expression
+    annotation = eval(expression, cls_namespace, locals_)
+  File "<string>", line 1, in <module>
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 1541, in _extract_mappable_attributes
+    value.declarative_scan(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/properties.py", line 708, in declarative_scan
+    self._init_column_for_annotation(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/properties.py", line 744, in _init_column_for_annotation
+    argument = de_stringify_annotation(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/util/typing.py", line 156, in de_stringify_annotation
+    annotation = eval_expression(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/util/typing.py", line 234, in eval_expression
+    raise NameError(
+NameError: Could not de-stringify annotation 'str | None'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/bin/uvicorn", line 8, in <module>
+    sys.exit(main())
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1161, in __call__
+    return self.main(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1082, in main
+    rv = self.invoke(ctx)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1443, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 788, in invoke
+    return __callback(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 409, in main
+    run(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 575, in run
+    server.run()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 65, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/base_events.py", line 642, in run_until_complete
+    return future.result()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 69, in serve
+    await self._serve(sockets)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 76, in _serve
+    config.load()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/config.py", line 433, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/importlib/__init__.py", line 127, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1030, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1007, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 986, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 680, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/main.py", line 2, in <module>
+    from app import models
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/models.py", line 21, in <module>
+    class User(Base):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_api.py", line 836, in __init_subclass__
+    _as_declarative(cls._sa_registry, cls, cls.__dict__)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 244, in _as_declarative
+    return _MapperConfig.setup_mapping(registry, cls, dict_, None, {})
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 325, in setup_mapping
+    return _ClassScanMapperConfig(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 571, in __init__
+    self._extract_mappable_attributes()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/sqlalchemy/orm/decl_base.py", line 1553, in _extract_mappable_attributes
+    raise exc.ArgumentError(
+sqlalchemy.exc.ArgumentError: Could not resolve all types within mapped annotation: "Mapped[str | None]".  Ensure all types are written correctly and are imported within the module in use.
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_typing_extra.py", line 240, in eval_type_backport
+    return typing._eval_type(  # type: ignore
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/typing.py", line 290, in _eval_type
+    return t._evaluate(globalns, localns, recursive_guard)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/typing.py", line 546, in _evaluate
+    eval(self.__forward_code__, globalns, localns),
+  File "<string>", line 1, in <module>
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/bin/uvicorn", line 8, in <module>
+    sys.exit(main())
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1161, in __call__
+    return self.main(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1082, in main
+    rv = self.invoke(ctx)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1443, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 788, in invoke
+    return __callback(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 409, in main
+    run(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 575, in run
+    server.run()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 65, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/base_events.py", line 642, in run_until_complete
+    return future.result()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 69, in serve
+    await self._serve(sockets)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 76, in _serve
+    config.load()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/config.py", line 433, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/importlib/__init__.py", line 127, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1030, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1007, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 986, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 680, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/main.py", line 4, in <module>
+    from app.routes import users, strava
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/routes/__init__.py", line 1, in <module>
+    from app.routes import users, strava  # noqa: F401
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/routes/users.py", line 3, in <module>
+    from app import models, schemas
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/schemas.py", line 11, in <module>
+    class UserCreate(BaseModel):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_model_construction.py", line 178, in __new__
+    set_model_fields(cls, bases, config_wrapper, types_namespace)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_model_construction.py", line 452, in set_model_fields
+    fields, class_vars = collect_model_fields(cls, bases, config_wrapper, types_namespace, typevars_map=typevars_map)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_fields.py", line 122, in collect_model_fields
+    type_hints = get_cls_type_hints_lenient(cls, types_namespace)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_typing_extra.py", line 212, in get_cls_type_hints_lenient
+    hints[name] = eval_type_lenient(value, globalns, localns)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_typing_extra.py", line 224, in eval_type_lenient
+    return eval_type_backport(value, globalns, localns)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_typing_extra.py", line 249, in eval_type_backport
+    raise TypeError(
+TypeError: You have a type annotation 'str | None' which makes use of newer typing features than are supported in your version of Python. To handle this error, you should either remove the use of new syntax or install the `eval_type_backport` package.
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_typing_extra.py", line 240, in eval_type_backport
+    return typing._eval_type(  # type: ignore
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/typing.py", line 290, in _eval_type
+    return t._evaluate(globalns, localns, recursive_guard)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/typing.py", line 546, in _evaluate
+    eval(self.__forward_code__, globalns, localns),
+  File "<string>", line 1, in <module>
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/bin/uvicorn", line 8, in <module>
+    sys.exit(main())
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1161, in __call__
+    return self.main(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1082, in main
+    rv = self.invoke(ctx)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1443, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 788, in invoke
+    return __callback(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 409, in main
+    run(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 575, in run
+    server.run()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 65, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/base_events.py", line 642, in run_until_complete
+    return future.result()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 69, in serve
+    await self._serve(sockets)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 76, in _serve
+    config.load()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/config.py", line 433, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/importlib/__init__.py", line 127, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1030, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1007, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 986, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 680, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/main.py", line 4, in <module>
+    from app.routes import users, strava
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/routes/__init__.py", line 1, in <module>
+    from app.routes import users, strava  # noqa: F401
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/routes/users.py", line 3, in <module>
+    from app import models, schemas
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/schemas.py", line 11, in <module>
+    class UserCreate(BaseModel):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_model_construction.py", line 178, in __new__
+    set_model_fields(cls, bases, config_wrapper, types_namespace)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_model_construction.py", line 452, in set_model_fields
+    fields, class_vars = collect_model_fields(cls, bases, config_wrapper, types_namespace, typevars_map=typevars_map)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_fields.py", line 122, in collect_model_fields
+    type_hints = get_cls_type_hints_lenient(cls, types_namespace)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_typing_extra.py", line 212, in get_cls_type_hints_lenient
+    hints[name] = eval_type_lenient(value, globalns, localns)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_typing_extra.py", line 224, in eval_type_lenient
+    return eval_type_backport(value, globalns, localns)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_typing_extra.py", line 249, in eval_type_backport
+    raise TypeError(
+TypeError: You have a type annotation 'str | None' which makes use of newer typing features than are supported in your version of Python. To handle this error, you should either remove the use of new syntax or install the `eval_type_backport` package.
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_typing_extra.py", line 240, in eval_type_backport
+    return typing._eval_type(  # type: ignore
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/typing.py", line 290, in _eval_type
+    return t._evaluate(globalns, localns, recursive_guard)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/typing.py", line 546, in _evaluate
+    eval(self.__forward_code__, globalns, localns),
+  File "<string>", line 1, in <module>
+TypeError: unsupported operand type(s) for |: 'type' and 'NoneType'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/bin/uvicorn", line 8, in <module>
+    sys.exit(main())
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1161, in __call__
+    return self.main(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1082, in main
+    rv = self.invoke(ctx)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 1443, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/click/core.py", line 788, in invoke
+    return __callback(*args, **kwargs)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 409, in main
+    run(
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/main.py", line 575, in run
+    server.run()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 65, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/base_events.py", line 642, in run_until_complete
+    return future.result()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 69, in serve
+    await self._serve(sockets)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/server.py", line 76, in _serve
+    config.load()
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/config.py", line 433, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/importlib/__init__.py", line 127, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1030, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1007, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 986, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 680, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 850, in exec_module
+  File "<frozen importlib._bootstrap>", line 228, in _call_with_frames_removed
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/main.py", line 4, in <module>
+    from app.routes import users, strava
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/routes/__init__.py", line 1, in <module>
+    from app.routes import users, strava  # noqa: F401
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/routes/users.py", line 3, in <module>
+    from app import models, schemas
+  File "/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/api/app/schemas.py", line 11, in <module>
+    class UserCreate(BaseModel):
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_model_construction.py", line 178, in __new__
+    set_model_fields(cls, bases, config_wrapper, types_namespace)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_model_construction.py", line 452, in set_model_fields
+    fields, class_vars = collect_model_fields(cls, bases, config_wrapper, types_namespace, typevars_map=typevars_map)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_fields.py", line 122, in collect_model_fields
+    type_hints = get_cls_type_hints_lenient(cls, types_namespace)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_typing_extra.py", line 212, in get_cls_type_hints_lenient
+    hints[name] = eval_type_lenient(value, globalns, localns)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_typing_extra.py", line 224, in eval_type_lenient
+    return eval_type_backport(value, globalns, localns)
+  File "/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/lib/python3.9/site-packages/pydantic/_internal/_typing_extra.py", line 249, in eval_type_backport
+    raise TypeError(
+TypeError: You have a type annotation 'str | None' which makes use of newer typing features than are supported in your version of Python. To handle this error, you should either remove the use of new syntax or install the `eval_type_backport` package.
+INFO:     Started server process [93129]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [93129]
+INFO:     Started server process [96107]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [96107]
+INFO:     Started server process [96153]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [96153]
+INFO:     Started server process [96253]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [96253]
+INFO:     Started server process [96510]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [96510]
+INFO:     Started server process [97128]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [97128]
+INFO:     Started server process [97637]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [97637]
+INFO:     Started server process [98119]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [98119]
+INFO:     Started server process [98429]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [98429]
+INFO:     Started server process [99500]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [99500]
+INFO:     Started server process [99817]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [99817]
+INFO:     Started server process [559]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [559]
+INFO:     Started server process [702]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [702]
+INFO:     Started server process [2574]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [2574]
+INFO:     Started server process [2595]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [2595]
+INFO:     Started server process [2917]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [2917]
+INFO:     Started server process [2928]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [2928]
+INFO:     Started server process [2941]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [2941]
+INFO:     Started server process [3199]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [3199]
+INFO:     Started server process [4621]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [4621]
+INFO:     Started server process [4807]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [4807]
+INFO:     Started server process [5526]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [5526]
+INFO:     Started server process [6575]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [6575]
+INFO:     Started server process [7570]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [7570]
+INFO:     Started server process [8857]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [8857]
+INFO:     Started server process [9135]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [9135]
+INFO:     Started server process [10875]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [10875]
+INFO:     Started server process [12001]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [12001]
+INFO:     Started server process [13332]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [13332]
+INFO:     Started server process [13937]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [13937]
+INFO:     Started server process [24403]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [24403]
+INFO:     Started server process [24565]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [24565]
+INFO:     Started server process [25739]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [25739]
+INFO:     Started server process [25883]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [25883]
+INFO:     Started server process [26899]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [26899]
+INFO:     Started server process [45445]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [45445]
+INFO:     Started server process [53734]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [53734]
+INFO:     Started server process [55786]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [55786]
+INFO:     Started server process [58097]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [58097]
+INFO:     Started server process [58599]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [58599]
+INFO:     Started server process [59006]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)

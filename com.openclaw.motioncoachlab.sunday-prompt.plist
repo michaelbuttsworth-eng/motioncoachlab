@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  MotionCoachLab Sunday Weekly Prompt — Sundays 8:00am
+-->
+<plist version="1.0">
+<dict>
+
+  <key>Label</key>
+  <string>com.openclaw.motioncoachlab.sunday-prompt</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/bin/python</string>
+    <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/worker/app/sunday_prompt.py</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ENV_FILE</key>
+    <string>/Users/michaelbuttsworth/.openclaw/.env</string>
+    <key>API_BASE_URL</key>
+    <string>http://localhost:8000</string>
+  </dict>
+
+  <!-- Sundays at 8:00am local time -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key>
+    <integer>0</integer>
+    <key>Hour</key>
+    <integer>8</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab/logs/sunday_prompt.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab/logs/sunday_prompt_error.log</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab</string>
+
+</dict>
+</plist>

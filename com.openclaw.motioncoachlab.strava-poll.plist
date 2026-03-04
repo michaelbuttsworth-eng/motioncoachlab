@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.motioncoachlab.strava-poll</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/bin/python</string>
+    <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/worker/app/strava_poll_notify.py</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ENV_FILE</key>
+    <string>/Users/michaelbuttsworth/.openclaw/.env</string>
+    <key>API_BASE_URL</key>
+    <string>http://localhost:8000</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StartInterval</key>
+  <integer>1800</integer>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab</string>
+
+  <key>StandardOutPath</key>
+  <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab/logs/strava_poll.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab/logs/strava_poll_error.log</string>
+</dict>
+</plist>

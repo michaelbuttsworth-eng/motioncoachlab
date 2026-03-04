@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.motioncoachlab.sheet-sync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/michaelbuttsworth/.openclaw/venvs/motioncoachlab/bin/python</string>
+    <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab/services/worker/app/sheets_sync.py</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ENV_FILE</key>
+    <string>/Users/michaelbuttsworth/.openclaw/.env</string>
+    <key>MOTIONCOACH_SHEET_ID</key>
+    <string>1zomqLaWOuV92pKD0U28EJLjDaxIuzgz8z8Q_f3uwiSg</string>
+    <key>GOOGLE_SHEETS_CREDENTIALS</key>
+    <string>/Users/michaelbuttsworth/.openclaw/secrets/google_sheets.json</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StartInterval</key>
+  <integer>1800</integer>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab</string>
+
+  <key>StandardOutPath</key>
+  <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab/logs/sheets_sync.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab/logs/sheets_sync_error.log</string>
+</dict>
+</plist>

@@ -1,0 +1,5 @@
+httpx==0.25.2
+python-dotenv==1.0.1
+google-auth==2.38.0
+google-api-python-client==2.167.0
+sqlalchemy==2.0.28

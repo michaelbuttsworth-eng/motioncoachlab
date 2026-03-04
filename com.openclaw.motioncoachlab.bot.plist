@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.motioncoachlab.bot</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab/scripts/run_bot.sh</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab</string>
+
+  <key>StandardOutPath</key>
+  <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab/logs/bot.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/michaelbuttsworth/.openclaw/motioncoachlab/logs/bot_error.log</string>
+</dict>
+</plist>
