@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "MotionCoachLab",
+    "slug": "motioncoachlab-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.motioncoachlab.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "MotionCoachLab uses location during your run to track distance and pace.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "MotionCoachLab can track your run while the app is in background.",
+        "UIBackgroundModes": [
+          "location"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.motioncoachlab.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION"
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "b2813eac-3c1e-48dc-9d68-62cf03d54571"
+      }
+    },
+    "owner": "butlox",
+    "plugins": [
+      "expo-asset",
+      "expo-secure-store"
+    ]
+  }
+}
