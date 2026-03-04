@@ -7,7 +7,7 @@ import LiveRunScreen from './screens/LiveRunScreen';
 import ProgressScreen from './screens/ProgressScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
-import { authGuest, authMe, clearAuthToken, getOnboarding, setAuthToken } from './lib/api';
+import { authGuest, authMe, clearAuthToken, getOnboarding, setAuthToken, upsertOnboarding } from './lib/api';
 
 type Tab = 'plan' | 'run' | 'progress' | 'history';
 const TOKEN_KEY = 'mcl_auth_token';
@@ -148,8 +148,21 @@ export default function App() {
         <View>
           <Text style={styles.userLabel}>{userName}</Text>
           <Text style={styles.userId}>ID {userId}</Text>
+          <Pressable
+            onPress={async () => {
+              try {
+                await upsertOnboarding(userId, { current_step: 1 });
+                setNeedsOnboarding(true);
+              } catch (e: any) {
+                setAuthMsg(e?.message || 'Could not reset setup');
+              }
+            }}
+          >
+            <Text style={styles.resetLink}>Reset setup</Text>
+          </Pressable>
         </View>
       </View>
+      {authMsg ? <Text style={styles.errTop}>{authMsg}</Text> : null}
 
       <View style={styles.tabs}>
         <TabBtn label="Plan" active={tab === 'plan'} onPress={() => setTab('plan')} />
@@ -218,6 +231,8 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '700', color: '#19241a' },
   userLabel: { color: '#385038', textAlign: 'right', fontWeight: '700' },
   userId: { color: '#5d7455', textAlign: 'right', fontSize: 12 },
+  resetLink: { color: '#6b8f41', textAlign: 'right', fontSize: 12, textDecorationLine: 'underline' },
+  errTop: { color: '#a32626', paddingHorizontal: 16, paddingBottom: 8 },
   tabs: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 12 },
   tabBtn: {
     flex: 1,
