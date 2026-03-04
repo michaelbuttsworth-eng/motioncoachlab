@@ -6,7 +6,7 @@ import PlanTodayScreen from './screens/PlanTodayScreen';
 import LiveRunScreen from './screens/LiveRunScreen';
 import ProgressScreen from './screens/ProgressScreen';
 import HistoryScreen from './screens/HistoryScreen';
-import { authGuest, setAuthToken } from './lib/api';
+import { authGuest, authMe, clearAuthToken, setAuthToken } from './lib/api';
 
 type Tab = 'plan' | 'run' | 'progress' | 'history';
 const TOKEN_KEY = 'mcl_auth_token';
@@ -34,8 +34,17 @@ export default function App() {
         const nm = await SecureStore.getItemAsync(USER_NAME_KEY);
         if (token && uid) {
           setAuthToken(token);
-          setUserId(Number(uid));
-          setUserName(nm || 'Runner');
+          try {
+            const me = await authMe();
+            setUserId(Number(me.user_id));
+            setUserName(me.name || nm || 'Runner');
+          } catch {
+            // Token from another environment (e.g. local API) should force a clean re-login.
+            clearAuthToken();
+            await SecureStore.deleteItemAsync(TOKEN_KEY);
+            await SecureStore.deleteItemAsync(USER_ID_KEY);
+            await SecureStore.deleteItemAsync(USER_NAME_KEY);
+          }
         }
       } finally {
         setLoading(false);

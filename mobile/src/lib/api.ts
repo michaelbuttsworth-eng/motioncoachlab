@@ -8,6 +8,10 @@ export function setAuthToken(token: string) {
   AUTH_TOKEN = token;
 }
 
+export function clearAuthToken() {
+  AUTH_TOKEN = '';
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
