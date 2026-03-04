@@ -33,7 +33,7 @@ export default function OnboardingScreen({
         time_per_run: timePerRun,
       });
       await upsertProfile(userId, {
-        goal_mode: 'Build up to run a distance continuously',
+        goal_mode: 'Distance build',
         goal_primary: goal,
         ability_level: level,
         weekly_availability: days,
@@ -126,4 +126,3 @@ const styles = StyleSheet.create({
   ctaText: { color: '#fff', fontWeight: '700' },
   err: { color: '#a32626' },
 });
-

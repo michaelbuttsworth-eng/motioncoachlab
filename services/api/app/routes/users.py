@@ -67,7 +67,7 @@ def bootstrap_profile(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
 
     defaults = {
-        "goal_mode": "Build up to run a distance continuously",
+        "goal_mode": "Distance build",
         "goal_primary": "5K",
         "goal_date": None,
         "start_date": date.today(),
