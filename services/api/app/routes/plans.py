@@ -357,7 +357,7 @@ def generate_plan(
     if not user.profile:
         user.profile = models.Profile(
             user_id=user_id,
-            goal_mode="Build up to run a distance continuously",
+            goal_mode="Distance build",
             goal_primary="5K",
             goal_date=None,
             start_date=date.today(),
