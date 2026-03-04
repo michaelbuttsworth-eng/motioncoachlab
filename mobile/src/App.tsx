@@ -6,7 +6,8 @@ import PlanTodayScreen from './screens/PlanTodayScreen';
 import LiveRunScreen from './screens/LiveRunScreen';
 import ProgressScreen from './screens/ProgressScreen';
 import HistoryScreen from './screens/HistoryScreen';
-import { authGuest, authMe, clearAuthToken, setAuthToken } from './lib/api';
+import OnboardingScreen from './screens/OnboardingScreen';
+import { authGuest, authMe, clearAuthToken, getOnboarding, setAuthToken } from './lib/api';
 
 type Tab = 'plan' | 'run' | 'progress' | 'history';
 const TOKEN_KEY = 'mcl_auth_token';
@@ -25,6 +26,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [authNameInput, setAuthNameInput] = useState('');
   const [authMsg, setAuthMsg] = useState('');
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
 
   useEffect(() => {
     const boot = async () => {
@@ -38,6 +40,12 @@ export default function App() {
             const me = await authMe();
             setUserId(Number(me.user_id));
             setUserName(me.name || nm || 'Runner');
+            try {
+              const ob = await getOnboarding(Number(me.user_id));
+              setNeedsOnboarding(!ob.current_step || Number(ob.current_step) < 99);
+            } catch {
+              setNeedsOnboarding(true);
+            }
           } catch {
             // Token from another environment (e.g. local API) should force a clean re-login.
             clearAuthToken();
@@ -69,6 +77,12 @@ export default function App() {
       await SecureStore.setItemAsync(USER_NAME_KEY, res.name || name);
       setUserId(res.user_id);
       setUserName(res.name || name);
+      try {
+        const ob = await getOnboarding(res.user_id);
+        setNeedsOnboarding(!ob.current_step || Number(ob.current_step) < 99);
+      } catch {
+        setNeedsOnboarding(true);
+      }
     } catch (e: any) {
       setAuthMsg(e?.message || 'Login failed');
     }
@@ -113,6 +127,15 @@ export default function App() {
 
           {authMsg ? <Text style={styles.err}>{authMsg}</Text> : null}
         </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (needsOnboarding) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <StatusBar style="dark" />
+        <OnboardingScreen userId={userId} onDone={() => setNeedsOnboarding(false)} />
       </SafeAreaView>
     );
   }

@@ -34,6 +34,31 @@ export type GuestAuthOut = {
   expires_at: string;
 };
 
+export type OnboardingOut = {
+  id: number;
+  user_id: number;
+  current_step?: number | null;
+  goal_primary?: string | null;
+  ability_level?: string | null;
+  weekly_availability?: number | null;
+  time_per_run?: string | null;
+  updated_at: string;
+};
+
+export type ProfileIn = {
+  goal_mode: string;
+  goal_primary: string;
+  ability_level: string;
+  weekly_availability: number;
+  time_per_run: string;
+  injury_status: string;
+  preferred_days: string;
+  recent_runs_per_week?: number;
+  longest_recent_min?: number;
+  continuous_run_min?: number;
+  run_walk_ok?: string;
+};
+
 export function authGuest(name: string, device_id: string) {
   return req<GuestAuthOut>('/auth/guest', {
     method: 'POST',
@@ -43,6 +68,24 @@ export function authGuest(name: string, device_id: string) {
 
 export function authMe() {
   return req<{ user_id: number; name: string; email?: string | null }>('/auth/me');
+}
+
+export function getOnboarding(userId: number) {
+  return req<OnboardingOut>(`/users/${userId}/onboarding`);
+}
+
+export function upsertOnboarding(userId: number, payload: Record<string, unknown>) {
+  return req<OnboardingOut>(`/users/${userId}/onboarding`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function upsertProfile(userId: number, payload: ProfileIn) {
+  return req(`/users/${userId}/profile`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 export type MobilePlanToday = {
