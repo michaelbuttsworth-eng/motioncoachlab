@@ -254,9 +254,25 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     );
   };
 
-  const speak = (text: string) => {
+  const speak = (text: string, cueType = 'cue') => {
     const selected = voiceOptions[voiceIdx];
-    Speech.speak(text, { rate: 0.95, pitch: 1.0, voice: selected?.id, language: selected?.language || 'en-AU' });
+    // Force a fresh utterance per cue; improves reliability when music apps hold audio focus.
+    Speech.stop();
+    Speech.speak(text, {
+      rate: 0.95,
+      pitch: 1.0,
+      voice: selected?.id,
+      language: selected?.language || 'en-AU',
+      onStart: () => logDiag(`tts start ${cueType}`),
+      onDone: () => logDiag(`tts done ${cueType}`),
+      onStopped: () => logDiag(`tts stopped ${cueType}`),
+      onError: () => {
+        // Retry once on default voice as fallback.
+        logDiag(`tts error ${cueType}, retry default`);
+        Speech.stop();
+        Speech.speak(text, { rate: 0.95, pitch: 1.0, language: 'en-AU' });
+      },
+    });
   };
 
   const logDiag = (line: string) => {
@@ -344,7 +360,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
 
     for (const c of cues) {
       const timer = setTimeout(async () => {
-        speak(c.text);
+        speak(c.text, c.type);
         setMsg(`🔊 ${c.text}`);
         logDiag(`cue: ${c.type}`);
         try {
@@ -363,7 +379,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
         return;
       }
       const text = 'Halfway point. If this is an out and back route, turn around now.';
-      speak(text);
+      speak(text, 'cue_halfway');
       setMsg(`🔊 ${text}`);
       logDiag('cue: cue_halfway');
       try {
@@ -552,12 +568,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
                 const next = (voiceIdx + 1) % voiceOptions.length;
                 setVoiceIdx(next);
                 const v = voiceOptions[next];
-                Speech.speak(`Voice selected: ${v?.name || 'Default'}`, {
-                  rate: 0.95,
-                  pitch: 1.0,
-                  voice: v?.id,
-                  language: v?.language || 'en-AU',
-                });
+                speak(`Voice selected: ${v?.name || 'Default'}`, 'voice_selected');
                 logDiag(`voice selected ${v?.name || 'Default'}`);
               }}
             >
@@ -565,7 +576,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
             </Pressable>
             <Pressable
               style={styles.smallBtn}
-              onPress={() => speak('Voice test. Run cues are ready.')}
+              onPress={() => speak('Voice test. Run cues are ready.', 'voice_test')}
             >
               <Text style={styles.smallBtnText}>Test Voice</Text>
             </Pressable>
