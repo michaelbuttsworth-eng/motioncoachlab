@@ -20,7 +20,7 @@ import {
 
 type CheckStage = 'none' | 'effort' | 'fatigue' | 'pain' | 'feel' | 'done';
 
-type Coord = { latitude: number; longitude: number; ts: number };
+type Coord = { latitude: number; longitude: number; ts: number; accuracy?: number; speed?: number | null };
 
 const BG_TASK_NAME = 'motioncoachlab-bg-location';
 let BG_POINTS: Coord[] = [];
@@ -55,12 +55,17 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   const [diag, setDiag] = useState<string[]>([]);
   const [syncState, setSyncState] = useState<'synced' | 'syncing' | 'pending'>('synced');
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [voiceOptions, setVoiceOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [voiceIdx, setVoiceIdx] = useState(0);
+  const [cueDetailMode, setCueDetailMode] = useState(true);
 
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
   const pointsRef = useRef<Coord[]>([]);
   const cueTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const pauseAccumRef = useRef<number>(0);
   const pauseStartedAtRef = useRef<number | null>(null);
+  const lastPointTsRef = useRef<number | null>(null);
+  const stalledWarnedRef = useRef(false);
 
   useEffect(() => {
     const loadPlan = async () => {
@@ -84,6 +89,21 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     };
     loadPlan();
   }, [userId]);
+
+  useEffect(() => {
+    const loadVoices = async () => {
+      try {
+        const voices = await Speech.getAvailableVoicesAsync();
+        const english = voices
+          .filter((v: any) => String(v.language || '').toLowerCase().startsWith('en'))
+          .map((v: any) => ({ id: String(v.identifier), name: String(v.name || v.identifier) }));
+        if (english.length) setVoiceOptions(english);
+      } catch {
+        // Keep default voice when unavailable.
+      }
+    };
+    loadVoices();
+  }, []);
 
   useEffect(() => {
     if (!startedAt || isPaused) return;
@@ -134,8 +154,22 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     return () => clearInterval(id);
   }, [startedAt, sessionId, seconds, distanceM, isPaused, backgroundMode, routeCoords.length]);
 
+  useEffect(() => {
+    if (!startedAt || isPaused) return;
+    const id = setInterval(() => {
+      if (!lastPointTsRef.current) return;
+      const gapMs = Date.now() - lastPointTsRef.current;
+      if (gapMs > 20000 && !stalledWarnedRef.current) {
+        stalledWarnedRef.current = true;
+        setMsg('GPS signal paused. Keep app open and location on; tracking will resume automatically.');
+        logDiag('gps stalled >20s');
+      }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [startedAt, isPaused]);
+
   const elapsed = useMemo(() => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`, [seconds]);
-  const distanceKm = useMemo(() => (distanceM / 1000).toFixed(2), [distanceM]);
+  const distanceLabel = useMemo(() => (distanceM < 1000 ? `${Math.round(distanceM)} m` : `${(distanceM / 1000).toFixed(2)} km`), [distanceM]);
   const pace = useMemo(() => {
     if (distanceM <= 0 || seconds <= 0) return '-';
     const min = seconds / 60;
@@ -197,13 +231,21 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
           latitude: loc.coords.latitude,
           longitude: loc.coords.longitude,
           ts: Date.now(),
+          accuracy: loc.coords.accuracy ?? undefined,
+          speed: loc.coords.speed ?? undefined,
         };
         const prev = pointsRef.current[pointsRef.current.length - 1];
         pointsRef.current.push(p);
+        lastPointTsRef.current = p.ts;
+        if (stalledWarnedRef.current) {
+          stalledWarnedRef.current = false;
+          setMsg('GPS signal restored.');
+          logDiag('gps restored');
+        }
         setRouteCoords([...pointsRef.current]);
         if (prev) {
-          const delta = haversineMeters(prev.latitude, prev.longitude, p.latitude, p.longitude);
-          if (delta > 1 && delta < 100) {
+          const delta = segmentMeters(prev, p);
+          if (delta > 0) {
             setDistanceM((d) => d + delta);
           }
         }
@@ -212,8 +254,8 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   };
 
   const speak = (text: string) => {
-    Speech.stop();
-    Speech.speak(text, { rate: 0.95, pitch: 1.0 });
+    const voice = voiceOptions[voiceIdx]?.id;
+    Speech.speak(text, { rate: 0.95, pitch: 1.0, voice });
   };
 
   const logDiag = (line: string) => {
@@ -268,10 +310,18 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     const plan = intervalPlan || { warmup: 5, run: 1, walk: 1.5, repeats: 8, cooldown: 5 };
     const cues: Array<{ atSec: number; text: string; type: string }> = [];
     let t = 0;
-    cues.push({ atSec: t, text: `Warm-up walk for ${plan.warmup} minutes`, type: 'cue_warmup' });
+    if (cueDetailMode) {
+      cues.push({
+        atSec: t,
+        text: `Warm-up for ${plan.warmup} minutes. Today is ${plan.repeats} run intervals of ${plan.run} minute with ${plan.walk} minute walk recoveries.`,
+        type: 'cue_warmup_intro',
+      });
+    } else {
+      cues.push({ atSec: t, text: `Warm-up walk for ${plan.warmup} minutes`, type: 'cue_warmup' });
+    }
     t += plan.warmup * 60;
     for (let i = 0; i < plan.repeats; i += 1) {
-      cues.push({ atSec: t, text: `Run now`, type: 'cue_run' });
+      cues.push({ atSec: t, text: `Run ${i + 1} of ${plan.repeats}. Start running now.`, type: 'cue_run' });
       t += plan.run * 60;
       if (i < plan.repeats - 1 && plan.walk > 0) {
         cues.push({ atSec: t, text: `Walk now`, type: 'cue_walk' });
@@ -280,7 +330,16 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     }
     cues.push({ atSec: t, text: `Cool-down walk`, type: 'cue_cooldown' });
     const half = Math.floor(t / 2);
-    cues.push({ atSec: half, text: 'Halfway point. Turn around now.', type: 'cue_halfway' });
+
+    const totalMotion = Math.round(plan.warmup + (plan.repeats * (plan.run + plan.walk)) + plan.cooldown);
+    const totalRun = Math.round(plan.repeats * plan.run);
+    cues.push({
+      atSec: t + (plan.cooldown * 60),
+      text: cueDetailMode
+        ? `Well done. You completed ${totalRun} minutes running and ${totalMotion} minutes of total motion.`
+        : 'Well done. Session complete.',
+      type: 'cue_summary',
+    });
 
     for (const c of cues) {
       const timer = setTimeout(async () => {
@@ -295,6 +354,22 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
       }, c.atSec * 1000);
       cueTimers.current.push(timer);
     }
+
+    const halfwayTimer = setTimeout(async () => {
+      const turnAround = shouldAnnounceTurnaround(pointsRef.current);
+      if (!turnAround) {
+        logDiag('halfway cue skipped (loop detected)');
+        return;
+      }
+      const text = 'Halfway point. If this is an out and back route, turn around now.';
+      speak(text);
+      setMsg(`🔊 ${text}`);
+      logDiag('cue: cue_halfway');
+      try {
+        await sendEvent(sid, 'cue_halfway');
+      } catch {}
+    }, half * 1000);
+    cueTimers.current.push(halfwayTimer);
   };
 
   const onStart = async () => {
@@ -308,6 +383,8 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
       setIsPaused(false);
       pauseAccumRef.current = 0;
       pauseStartedAtRef.current = null;
+      stalledWarnedRef.current = false;
+      lastPointTsRef.current = Date.now();
       pointsRef.current = [];
       BG_POINTS = [];
       setRouteCoords([]);
@@ -441,10 +518,11 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
         <Text style={styles.h1}>Live Run</Text>
         <Text style={styles.meta}>Sync: {syncState}{pendingSyncCount ? ` (${pendingSyncCount} pending)` : ''}</Text>
         <Text style={styles.p}>Elapsed: {elapsed}</Text>
-        <Text style={styles.p}>Distance: {distanceKm} km</Text>
+        <Text style={styles.p}>Distance: {distanceLabel}</Text>
         <Text style={styles.p}>Pace: {pace}</Text>
 
         {!startedAt ? (
+          <>
           <View style={styles.row}>
             <Pressable
               style={[styles.smallBtn, backgroundMode && styles.toggleOn]}
@@ -458,10 +536,28 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
             >
               <Text style={styles.smallBtnText}>Guided Cues: {guidedCuesEnabled ? 'On' : 'Off'}</Text>
             </Pressable>
+            <Pressable
+              style={[styles.smallBtn, cueDetailMode && styles.toggleOn]}
+              onPress={() => setCueDetailMode((v) => !v)}
+            >
+              <Text style={styles.smallBtnText}>Cue Detail: {cueDetailMode ? 'On' : 'Off'}</Text>
+            </Pressable>
+          </View>
+          <View style={styles.row}>
+            <Pressable
+              style={styles.smallBtn}
+              onPress={() => {
+                if (!voiceOptions.length) return;
+                setVoiceIdx((i) => (i + 1) % voiceOptions.length);
+              }}
+            >
+              <Text style={styles.smallBtnText}>Voice: {voiceOptions.length ? voiceOptions[voiceIdx]?.name : 'Default'}</Text>
+            </Pressable>
             <Pressable style={styles.primary} onPress={onStart}>
               <Text style={styles.primaryText}>Start Run</Text>
             </Pressable>
           </View>
+          </>
         ) : (
           <View style={styles.row}>
             <Pressable style={styles.smallBtn} onPress={onPauseResume}>
@@ -544,8 +640,8 @@ function mergePoints(fg: Coord[], bg: Coord[]): Coord[] {
       last = p;
       continue;
     }
-    const d = haversineMeters(last.latitude, last.longitude, p.latitude, p.longitude);
-    if (d >= 1) {
+    const d = segmentMeters(last, p);
+    if (d > 0) {
       out.push(p);
       last = p;
     }
@@ -557,9 +653,43 @@ function computeDistance(points: Coord[]): number {
   if (points.length < 2) return 0;
   let d = 0;
   for (let i = 1; i < points.length; i += 1) {
-    d += haversineMeters(points[i - 1].latitude, points[i - 1].longitude, points[i].latitude, points[i].longitude);
+    d += segmentMeters(points[i - 1], points[i]);
   }
   return d;
+}
+
+function segmentMeters(prev: Coord, next: Coord): number {
+  const d = haversineMeters(prev.latitude, prev.longitude, next.latitude, next.longitude);
+  if (d < 0.7) return 0;
+  const dt = Math.max(1, (next.ts - prev.ts) / 1000);
+  const speed = d / dt;
+  const pSpeed = prev.speed && prev.speed > 0 ? prev.speed : 0;
+  const nSpeed = next.speed && next.speed > 0 ? next.speed : 0;
+  const expectedMax = Math.max(7.5, pSpeed + 5, nSpeed + 5);
+  const acc = Math.max(prev.accuracy || 15, next.accuracy || 15);
+
+  // Reject jumps that are too fast for running and exceed GPS uncertainty.
+  if (speed > expectedMax && d > acc * 3) return 0;
+  if (d > 250 && speed > 8) return 0;
+  return d;
+}
+
+function shouldAnnounceTurnaround(points: Coord[]): boolean {
+  if (points.length < 20) return true;
+  const latest = points[points.length - 1];
+  let nearCount = 0;
+  for (let i = 0; i < points.length - 20; i += 4) {
+    const p = points[i];
+    const d = haversineMeters(latest.latitude, latest.longitude, p.latitude, p.longitude);
+    if (d < 30) nearCount += 1;
+    if (nearCount >= 3) return false;
+  }
+  const start = points[0];
+  const displacement = haversineMeters(start.latitude, start.longitude, latest.latitude, latest.longitude);
+  const traveled = computeDistance(points);
+  if (traveled < 400) return false;
+  if (displacement < 80) return false;
+  return true;
 }
 
 function buildRegion(points: Coord[]) {
