@@ -63,6 +63,9 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
   const pointsRef = useRef<Coord[]>([]);
   const cueTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const cuePlanRef = useRef<Array<{ atSec: number; text: string; type: string }>>([]);
+  const cueCursorRef = useRef(0);
+  const cueSessionIdRef = useRef<number | null>(null);
   const pauseAccumRef = useRef<number>(0);
   const pauseStartedAtRef = useRef<number | null>(null);
   const lastPointTsRef = useRef<number | null>(null);
@@ -131,7 +134,9 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     if (!startedAt || isPaused) return;
     const id = setInterval(() => {
       const paused = pauseAccumRef.current;
-      setSeconds(Math.max(0, Math.floor((Date.now() - startedAt - paused) / 1000)));
+      const elapsedSec = Math.max(0, Math.floor((Date.now() - startedAt - paused) / 1000));
+      setSeconds(elapsedSec);
+      processDueCues(elapsedSec);
     }, 1000);
     return () => clearInterval(id);
   }, [startedAt, isPaused]);
@@ -271,6 +276,11 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
             setDistanceM((d) => d + delta);
           }
         }
+        if (startedAt && !isPaused) {
+          const paused = pauseAccumRef.current;
+          const elapsedSec = Math.max(0, Math.floor((Date.now() - startedAt - paused) / 1000));
+          processDueCues(elapsedSec);
+        }
       }
     );
   };
@@ -359,6 +369,32 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   const clearCueTimers = () => {
     for (const t of cueTimers.current) clearTimeout(t);
     cueTimers.current = [];
+    cuePlanRef.current = [];
+    cueCursorRef.current = 0;
+    cueSessionIdRef.current = null;
+  };
+
+  const processDueCues = (elapsedSec: number) => {
+    if (!guidedCuesEnabled) return;
+    const plan = cuePlanRef.current;
+    if (!plan.length) return;
+
+    while (cueCursorRef.current < plan.length && elapsedSec >= plan[cueCursorRef.current].atSec) {
+      const c = plan[cueCursorRef.current];
+      cueCursorRef.current += 1;
+
+      if (c.type === 'cue_halfway' && !shouldAnnounceTurnaround(pointsRef.current)) {
+        logDiag('halfway cue skipped (loop detected)');
+        continue;
+      }
+
+      speak(c.text, c.type);
+      setMsg(`🔊 ${c.text}`);
+      logDiag(`cue: ${c.type}`);
+      if (cueSessionIdRef.current) {
+        sendEvent(cueSessionIdRef.current, c.type).catch(() => null);
+      }
+    }
   };
 
   const scheduleCues = async (sid: number) => {
@@ -396,35 +432,12 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
       type: 'cue_summary',
     });
 
-    for (const c of cues) {
-      const timer = setTimeout(async () => {
-        speak(c.text, c.type);
-        setMsg(`🔊 ${c.text}`);
-        logDiag(`cue: ${c.type}`);
-        try {
-          await sendEvent(sid, c.type);
-        } catch {
-          // do not break guided flow
-        }
-      }, c.atSec * 1000);
-      cueTimers.current.push(timer);
-    }
+    cues.push({ atSec: half, text: 'Halfway point. If this is an out and back route, turn around now.', type: 'cue_halfway' });
 
-    const halfwayTimer = setTimeout(async () => {
-      const turnAround = shouldAnnounceTurnaround(pointsRef.current);
-      if (!turnAround) {
-        logDiag('halfway cue skipped (loop detected)');
-        return;
-      }
-      const text = 'Halfway point. If this is an out and back route, turn around now.';
-      speak(text, 'cue_halfway');
-      setMsg(`🔊 ${text}`);
-      logDiag('cue: cue_halfway');
-      try {
-        await sendEvent(sid, 'cue_halfway');
-      } catch {}
-    }, half * 1000);
-    cueTimers.current.push(halfwayTimer);
+    cuePlanRef.current = cues.sort((a, b) => a.atSec - b.atSec);
+    cueCursorRef.current = 0;
+    cueSessionIdRef.current = sid;
+    logDiag(`cue plan loaded (${cuePlanRef.current.length} cues)`);
   };
 
   const onStart = async () => {
