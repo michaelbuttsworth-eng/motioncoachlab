@@ -8,6 +8,12 @@ const GOALS = ['5K', '10K', 'Half', 'Marathon', 'Ultra/Other'];
 const LEVELS = ['New', 'Returning', 'Regular'];
 const TIME_OPTIONS = ['Up to 30 min', 'Up to 45 min', 'Up to 60 min'];
 const DAYS = [2, 3, 4, 5, 6];
+const RECENT_RUN_OPTIONS: Array<{ label: string; value: number }> = [
+  { label: '0 / week', value: 0 },
+  { label: '1 / week', value: 1 },
+  { label: '2 / week', value: 2 },
+  { label: '3+ / week', value: 3 },
+];
 
 export default function OnboardingScreen({
   userId,
@@ -23,6 +29,7 @@ export default function OnboardingScreen({
   const [pickerField, setPickerField] = useState<'goal' | 'start' | null>(null);
   const [pickerDate, setPickerDate] = useState<Date>(new Date());
   const [level, setLevel] = useState('New');
+  const [recentRunsPerWeek, setRecentRunsPerWeek] = useState(0);
   const [days, setDays] = useState(3);
   const [timePerRun, setTimePerRun] = useState('Up to 45 min');
   const [saving, setSaving] = useState(false);
@@ -46,6 +53,39 @@ export default function OnboardingScreen({
     const d = parseIsoDate(value);
     return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   };
+
+  const isC25KGoal = goal === '5K' && (goalMode === 'Build up to run a distance continuously' || goalMode === 'Prepare for an event');
+
+  const c25kTiming = (() => {
+    if (!isC25KGoal) return null;
+    if (recentRunsPerWeek <= 0 || level === 'New') return { hardMinWeeks: 8, recommendedWeeks: 9, profile: 'new' as const };
+    if (recentRunsPerWeek <= 2 || level === 'Returning') return { hardMinWeeks: 7, recommendedWeeks: 8, profile: 'returning' as const };
+    return { hardMinWeeks: 6, recommendedWeeks: 6, profile: 'regular' as const };
+  })();
+
+  const timelineBaseDate = parseIsoDate(startDate);
+  const minGoalDateForPicker = (() => {
+    if (!c25kTiming) return new Date();
+    return new Date(timelineBaseDate.getTime() + (c25kTiming.hardMinWeeks * 7 * 24 * 60 * 60 * 1000));
+  })();
+
+  const recommendedGoalDate = (() => {
+    if (!c25kTiming) return null;
+    return new Date(timelineBaseDate.getTime() + (c25kTiming.recommendedWeeks * 7 * 24 * 60 * 60 * 1000));
+  })();
+
+  const goalTimingMessage = (() => {
+    if (!c25kTiming || !goalDate) return '';
+    const picked = parseIsoDate(goalDate);
+    const hard = minGoalDateForPicker;
+    if (picked < hard) {
+      return `Too soon for a safe Couch-to-5K start. Earliest target date: ${hard.toLocaleDateString('en-AU')}.`;
+    }
+    if (recommendedGoalDate && picked < recommendedGoalDate) {
+      return `Fast timeline selected. We recommend ${c25kTiming.recommendedWeeks} weeks for your current baseline.`;
+    }
+    return '';
+  })();
 
   const openDatePicker = (field: 'goal' | 'start') => {
     const base = field === 'goal' ? goalDate : (startDate || goalDate);
@@ -93,6 +133,16 @@ export default function OnboardingScreen({
         setSaving(false);
         return;
       }
+      if (c25kTiming) {
+        const picked = parseIsoDate(goalDate);
+        if (picked < minGoalDateForPicker) {
+          setErr(`Pick a later goal date. Earliest safe date is ${minGoalDateForPicker.toLocaleDateString('en-AU')}.`);
+          setSaving(false);
+          return;
+        }
+      }
+
+      const inferredContinuousMin = level === 'Regular' ? 25 : level === 'Returning' ? 12 : 5;
       await upsertOnboarding(userId, {
         current_step: 99,
         goal_mode: goalMode,
@@ -102,6 +152,7 @@ export default function OnboardingScreen({
         ability_level: level,
         weekly_availability: days,
         time_per_run: timePerRun,
+        recent_runs_per_week: recentRunsPerWeek,
       });
       await upsertProfile(userId, {
         goal_mode: modeDb,
@@ -113,10 +164,10 @@ export default function OnboardingScreen({
         time_per_run: timePerRun,
         injury_status: 'None',
         preferred_days: 'Mon/Tue/Wed/Thu/Fri/Sat/Sun',
-        recent_runs_per_week: 0,
+        recent_runs_per_week: recentRunsPerWeek,
         longest_recent_min: 0,
-        continuous_run_min: 5,
-        run_walk_ok: 'Yes',
+        continuous_run_min: inferredContinuousMin,
+        run_walk_ok: level === 'Regular' ? 'No' : 'Yes',
       });
       await generatePlan(userId, 16);
       onDone();
@@ -181,6 +232,18 @@ export default function OnboardingScreen({
         ))}
       </View>
 
+      <Text style={styles.label}>Recent running (last 4 weeks)</Text>
+      <View style={styles.row}>
+        {RECENT_RUN_OPTIONS.map((opt) => (
+          <Pick
+            key={opt.label}
+            text={opt.label}
+            selected={recentRunsPerWeek === opt.value}
+            onPress={() => setRecentRunsPerWeek(opt.value)}
+          />
+        ))}
+      </View>
+
       <Text style={styles.label}>Run days per week</Text>
       <View style={styles.row}>
         {DAYS.map((v) => (
@@ -196,6 +259,9 @@ export default function OnboardingScreen({
       </View>
 
       {err ? <Text style={styles.err}>{err}</Text> : null}
+      {goalTimingMessage ? (
+        <Text style={goalTimingMessage.startsWith('Too soon') ? styles.err : styles.warn}>{goalTimingMessage}</Text>
+      ) : null}
 
       <Pressable style={styles.cta} onPress={submit} disabled={saving}>
         <Text style={styles.ctaText}>{saving ? 'Saving...' : 'Create My Plan'}</Text>
@@ -211,7 +277,7 @@ export default function OnboardingScreen({
                 mode="date"
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                 onChange={onDatePickerChange}
-                minimumDate={pickerField === 'goal' ? new Date() : undefined}
+                minimumDate={pickerField === 'goal' ? minGoalDateForPicker : undefined}
               />
               {Platform.OS === 'ios' ? (
                 <View style={styles.modalActions}>
@@ -306,4 +372,5 @@ const styles = StyleSheet.create({
   cta: { marginTop: 14, backgroundColor: '#6b8f41', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   ctaText: { color: '#fff', fontWeight: '700' },
   err: { color: '#a32626' },
+  warn: { color: '#8a5a00' },
 });

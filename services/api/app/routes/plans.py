@@ -156,6 +156,20 @@ def _is_beginner_path(profile: models.Profile, goal: str) -> bool:
     )
 
 
+def _c25k_timing_weeks(profile: models.Profile) -> tuple[int, int]:
+    """
+    Returns (hard_min_weeks, recommended_weeks) for 5K run/walk onboarding.
+    Based on baseline recency + self-declared level.
+    """
+    ability = (profile.ability_level or "").lower()
+    recent = int(profile.recent_runs_per_week or 0)
+    if recent <= 0 or "new" in ability:
+        return 8, 9
+    if recent <= 2 or "return" in ability:
+        return 7, 8
+    return 6, 6
+
+
 def _c25k_motion_target(week_index: int) -> int:
     return C25K_WEEKLY_MOTION_MIN[min(week_index, len(C25K_WEEKLY_MOTION_MIN) - 1)]
 
@@ -396,6 +410,23 @@ def generate_plan(
     injury_mode = _injury_mode(injury_status)
     goal = _goal_key(goal_primary)
     beginner_path = _is_beginner_path(profile, goal)
+
+    if goal == "5k" and beginner_path and profile.goal_date:
+        base = profile.start_date if profile.start_date else today
+        days_to_goal = (profile.goal_date - base).days
+        hard_min_weeks, rec_weeks = _c25k_timing_weeks(profile)
+        hard_min_days = hard_min_weeks * 7
+        if days_to_goal < hard_min_days:
+            min_date = base + timedelta(days=hard_min_days)
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "C25K timeline too short for current baseline. "
+                    f"Earliest safe goal date is {min_date.isoformat()} "
+                    f"(recommended {rec_weeks} weeks)."
+                ),
+            )
+
     runs_per_week = max(2, weekly_availability)
     if beginner_path:
         runs_per_week = min(runs_per_week, 3)
