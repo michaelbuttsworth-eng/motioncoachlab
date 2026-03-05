@@ -41,7 +41,15 @@ if (!TaskManager.isTaskDefined(BG_TASK_NAME)) {
   });
 }
 
-export default function LiveRunScreen({ userId }: { userId: number }) {
+export default function LiveRunScreen({
+  userId,
+  cueDetailMode,
+  onCueDetailModeChange,
+}: {
+  userId: number;
+  cueDetailMode: boolean;
+  onCueDetailModeChange: (value: boolean) => void;
+}) {
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [seconds, setSeconds] = useState(0);
@@ -59,7 +67,6 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [voiceOptions, setVoiceOptions] = useState<Array<{ id: string; name: string; language?: string }>>([]);
   const [voiceIdx, setVoiceIdx] = useState(0);
-  const [cueDetailMode, setCueDetailMode] = useState(true);
 
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
   const pointsRef = useRef<Coord[]>([]);
@@ -742,7 +749,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
             </Pressable>
             <Pressable
               style={[styles.smallBtn, cueDetailMode && styles.toggleOn]}
-              onPress={() => setCueDetailMode((v) => !v)}
+              onPress={() => onCueDetailModeChange(!cueDetailMode)}
             >
               <Text style={styles.smallBtnText}>Cue Detail: {cueDetailMode ? 'On' : 'Off'}</Text>
             </Pressable>

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { SafeAreaView, StyleSheet, Text, View, Pressable, TextInput } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import PlanTodayScreen from './screens/PlanTodayScreen';
 import LiveRunScreen from './screens/LiveRunScreen';
 import ProgressScreen from './screens/ProgressScreen';
@@ -14,6 +15,7 @@ const TOKEN_KEY = 'mcl_auth_token';
 const USER_ID_KEY = 'mcl_user_id';
 const USER_NAME_KEY = 'mcl_user_name';
 const DEVICE_ID_KEY = 'mcl_device_id';
+const CUE_DETAIL_MODE_KEY = 'mcl_cue_detail_mode_v1';
 
 const APPLE_ENABLED = String(process.env.EXPO_PUBLIC_APPLE_LOGIN_ENABLED || 'false') === 'true';
 const GOOGLE_ENABLED = String(process.env.EXPO_PUBLIC_GOOGLE_LOGIN_ENABLED || 'false') === 'true';
@@ -27,6 +29,7 @@ export default function App() {
   const [authNameInput, setAuthNameInput] = useState('');
   const [authMsg, setAuthMsg] = useState('');
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const [cueDetailMode, setCueDetailMode] = useState(true);
 
   useEffect(() => {
     const boot = async () => {
@@ -54,12 +57,23 @@ export default function App() {
             await SecureStore.deleteItemAsync(USER_NAME_KEY);
           }
         }
+        const storedCueDetail = await AsyncStorage.getItem(CUE_DETAIL_MODE_KEY);
+        if (storedCueDetail === '0') setCueDetailMode(false);
       } finally {
         setLoading(false);
       }
     };
     boot();
   }, []);
+
+  const setCueDetailModeAndPersist = async (value: boolean) => {
+    setCueDetailMode(value);
+    try {
+      await AsyncStorage.setItem(CUE_DETAIL_MODE_KEY, value ? '1' : '0');
+    } catch {
+      // ignore local preference save errors
+    }
+  };
 
   const guestLogin = async () => {
     try {
@@ -171,9 +185,27 @@ export default function App() {
         <TabBtn label="History" active={tab === 'history'} onPress={() => setTab('history')} />
       </View>
 
+      <View style={styles.globalControls}>
+        <Text style={styles.globalLabel}>Coach detail cues</Text>
+        <Pressable
+          style={[styles.globalToggle, cueDetailMode && styles.globalToggleOn]}
+          onPress={() => setCueDetailModeAndPersist(!cueDetailMode)}
+        >
+          <Text style={[styles.globalToggleText, cueDetailMode && styles.globalToggleTextOn]}>
+            {cueDetailMode ? 'On' : 'Off'}
+          </Text>
+        </Pressable>
+      </View>
+
       <View style={styles.body}>
         {tab === 'plan' && <PlanTodayScreen userId={userId} />}
-        {tab === 'run' && <LiveRunScreen userId={userId} />}
+        {tab === 'run' && (
+          <LiveRunScreen
+            userId={userId}
+            cueDetailMode={cueDetailMode}
+            onCueDetailModeChange={setCueDetailModeAndPersist}
+          />
+        )}
         {tab === 'progress' && <ProgressScreen userId={userId} />}
         {tab === 'history' && <HistoryScreen userId={userId} />}
       </View>
@@ -234,6 +266,31 @@ const styles = StyleSheet.create({
   resetLink: { color: '#6b8f41', textAlign: 'right', fontSize: 12, textDecorationLine: 'underline' },
   errTop: { color: '#a32626', paddingHorizontal: 16, paddingBottom: 8 },
   tabs: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 12 },
+  globalControls: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#dae6ce',
+    borderRadius: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  globalLabel: { color: '#2f4230', fontWeight: '700' },
+  globalToggle: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#edf4e7',
+    borderWidth: 1,
+    borderColor: '#d4e3c8',
+  },
+  globalToggleOn: { backgroundColor: '#6b8f41', borderColor: '#6b8f41' },
+  globalToggleText: { color: '#35532d', fontWeight: '700' },
+  globalToggleTextOn: { color: '#fff' },
   tabBtn: {
     flex: 1,
     backgroundColor: '#d9e7ce',
