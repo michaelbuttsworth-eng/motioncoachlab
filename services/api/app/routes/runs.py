@@ -19,16 +19,21 @@ def _ensure_run_for_user(db: Session, user_id: int, run_id: int) -> models.Run:
 
 def _apply_feedback_adaptation(db: Session, user_id: int, feedback: models.RunFeedback) -> list[str]:
     actions: list[str] = []
-    pain_flag = "pain" in feedback.pain.lower() and "none" not in feedback.pain.lower()
-    hard_flag = (
-        ("hard" in feedback.effort.lower() or "max" in feedback.effort.lower())
-        and "very" in feedback.fatigue.lower()
+    pain_red = "pain_form" in feedback.pain.lower()
+    hard_flag = "max" in feedback.effort.lower() or (
+        "hard" in feedback.effort.lower() and "very" in feedback.fatigue.lower()
     )
-    if not (pain_flag or hard_flag):
+    easy_green = (
+        "easy" in feedback.effort.lower()
+        and "fresh" in feedback.fatigue.lower()
+        and "none" in feedback.pain.lower()
+    )
+
+    if not (pain_red or hard_flag or easy_green):
         return actions
 
     start = date.today()
-    end = start + timedelta(days=2)
+    end = start + timedelta(days=3 if pain_red else 2)
     rows = (
         db.query(models.PlanDay)
         .filter(
@@ -39,13 +44,46 @@ def _apply_feedback_adaptation(db: Session, user_id: int, feedback: models.RunFe
         )
         .all()
     )
-    for row in rows:
+    if pain_red:
+        for row in rows:
+            old_km = int(row.planned_km or 0)
+            row.session_type = "Easy Run"
+            row.planned_km = max(2, int(round(old_km * 0.7)))
+            row.notes = f"{(row.notes or '').strip()} Auto-adjusted after pain signal.".strip()
+        if rows:
+            actions.append("Pain signal detected: reduced next 72h load and switched sessions to easy effort.")
+        return actions
+
+    if hard_flag:
+        for row in rows:
+            old_km = int(row.planned_km or 0)
+            row.session_type = "Easy Run"
+            row.planned_km = max(2, int(round(old_km * 0.8)))
+            row.notes = f"{(row.notes or '').strip()} Auto-adjusted after hard fatigue signal.".strip()
+        if rows:
+            actions.append("High fatigue detected: reduced next 48h load and kept effort easy.")
+        return actions
+
+    # Green signal: only nudge one upcoming quality/easy session slightly.
+    next_rows = (
+        db.query(models.PlanDay)
+        .filter(
+            models.PlanDay.user_id == user_id,
+            models.PlanDay.day >= start,
+            models.PlanDay.day <= start + timedelta(days=7),
+            models.PlanDay.session_type != "Rest",
+        )
+        .order_by(models.PlanDay.day.asc())
+        .all()
+    )
+    if next_rows:
+        row = next_rows[0]
         old_km = int(row.planned_km or 0)
-        row.session_type = "Easy Run"
-        row.planned_km = max(2, int(round(old_km * 0.8)))
-        row.notes = f"{(row.notes or '').strip()} Auto-adjusted after post-run check-in.".strip()
-    if rows:
-        actions.append("Reduced next 48-72h load and switched upcoming sessions to easier effort.")
+        bump = max(0, min(1, int(round(old_km * 0.1))))
+        if bump > 0:
+            row.planned_km = old_km + bump
+            row.notes = f"{(row.notes or '').strip()} Slight progression after strong check-in.".strip()
+            actions.append("Strong recovery signal: added a small progression to your next run.")
     return actions
 
 

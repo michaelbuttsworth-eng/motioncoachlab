@@ -18,7 +18,7 @@ import {
   stopSession,
 } from '../lib/api';
 
-type CheckStage = 'none' | 'effort' | 'fatigue' | 'pain' | 'feel' | 'done';
+type CheckStage = 'none' | 'effort' | 'fatigue' | 'pain' | 'done';
 
 type Coord = { latitude: number; longitude: number; ts: number; accuracy?: number; speed?: number | null };
 
@@ -493,18 +493,27 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     }
     if (checkStage === 'pain') {
       setCheck((x) => ({ ...x, pain: value }));
-      setCheckStage('feel');
+      submitCheckinWithScores(value);
     }
   };
 
-  const submitFeel = async (session_feel: string) => {
+  const deriveSessionFeel = (effort: number, fatigue: number, pain: number): string => {
+    if (pain >= 7 || (effort >= 8 && fatigue >= 8)) return 'too_hard';
+    if (effort <= 3 && fatigue <= 3 && pain <= 2) return 'too_easy';
+    return 'about_right';
+  };
+
+  const submitCheckinWithScores = async (painScore?: string) => {
     if (!sessionId) return;
+    const effortN = Number(check.effort);
+    const fatigueN = Number(check.fatigue);
+    const painN = Number(painScore ?? check.pain);
     const payload = {
-      effort: scoreToEffort(Number(check.effort)),
-      fatigue: scoreToFatigue(Number(check.fatigue)),
-      pain: scoreToPain(Number(check.pain)),
-      session_feel,
-      notes: `scores effort=${check.effort}, fatigue=${check.fatigue}, pain=${check.pain}`,
+      effort: scoreToEffort(effortN),
+      fatigue: scoreToFatigue(fatigueN),
+      pain: scoreToPain(painN),
+      session_feel: deriveSessionFeel(effortN, fatigueN, painN),
+      notes: `scores effort=${effortN}, fatigue=${fatigueN}, pain=${painN}`,
     };
     try {
       const res = await checkinSession(sessionId, payload);
@@ -624,23 +633,14 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
             {checkStage === 'effort' && 'How hard was it?'}
             {checkStage === 'fatigue' && 'Fatigue now?'}
             {checkStage === 'pain' && 'Pain now?'}
-            {checkStage === 'feel' && 'Session feel?'}
           </Text>
-          {checkStage === 'feel' ? (
-            <View style={styles.row}>
-              <Pressable style={styles.smallBtn} onPress={() => submitFeel('too_easy')}><Text>Too Easy</Text></Pressable>
-              <Pressable style={styles.smallBtn} onPress={() => submitFeel('about_right')}><Text>About Right</Text></Pressable>
-              <Pressable style={styles.smallBtn} onPress={() => submitFeel('too_hard')}><Text>Too Hard</Text></Pressable>
-            </View>
-          ) : (
-            <View style={styles.rowWrap}>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-                <Pressable key={n} style={styles.scoreBtn} onPress={() => pushScore(String(n))}>
-                  <Text>{n}</Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
+          <View style={styles.rowWrap}>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+              <Pressable key={n} style={styles.scoreBtn} onPress={() => pushScore(String(n))}>
+                <Text>{n}</Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
       ) : null}
 
