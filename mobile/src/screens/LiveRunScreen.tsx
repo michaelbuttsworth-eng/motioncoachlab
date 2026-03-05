@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Location from 'expo-location';
 import * as Speech from 'expo-speech';
 import * as TaskManager from 'expo-task-manager';
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import {
   clearActiveSession,
@@ -104,6 +105,24 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
       }
     };
     loadVoices();
+  }, []);
+
+  useEffect(() => {
+    const configureAudio = async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: true,
+          interruptionModeIOS: InterruptionModeIOS.DuckOthers,
+          interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+      } catch {
+        // Leave default audio behavior when mode configuration fails.
+      }
+    };
+    configureAudio();
   }, []);
 
   useEffect(() => {
