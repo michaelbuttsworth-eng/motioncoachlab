@@ -67,6 +67,8 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   const pauseStartedAtRef = useRef<number | null>(null);
   const lastPointTsRef = useRef<number | null>(null);
   const stalledWarnedRef = useRef(false);
+  const isSpeakingRef = useRef(false);
+  const queuedSpeechRef = useRef<{ text: string; cueType: string } | null>(null);
 
   useEffect(() => {
     const loadPlan = async () => {
@@ -274,21 +276,38 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   };
 
   const speak = (text: string, cueType = 'cue') => {
+    if (isSpeakingRef.current) {
+      queuedSpeechRef.current = { text, cueType };
+      logDiag(`tts queued ${cueType}`);
+      return;
+    }
     const selected = voiceOptions[voiceIdx];
-    // Force a fresh utterance per cue; improves reliability when music apps hold audio focus.
-    Speech.stop();
+    isSpeakingRef.current = true;
+    const drainQueue = () => {
+      isSpeakingRef.current = false;
+      const queued = queuedSpeechRef.current;
+      queuedSpeechRef.current = null;
+      if (queued) {
+        setTimeout(() => speak(queued.text, queued.cueType), 120);
+      }
+    };
     Speech.speak(text, {
       rate: 0.95,
       pitch: 1.0,
       voice: selected?.id,
       language: selected?.language || 'en-AU',
       onStart: () => logDiag(`tts start ${cueType}`),
-      onDone: () => logDiag(`tts done ${cueType}`),
-      onStopped: () => logDiag(`tts stopped ${cueType}`),
+      onDone: () => {
+        logDiag(`tts done ${cueType}`);
+        drainQueue();
+      },
+      onStopped: () => {
+        logDiag(`tts stopped ${cueType}`);
+        drainQueue();
+      },
       onError: () => {
-        // Retry once on default voice as fallback.
+        drainQueue();
         logDiag(`tts error ${cueType}, retry default`);
-        Speech.stop();
         Speech.speak(text, { rate: 0.95, pitch: 1.0, language: 'en-AU' });
       },
     });

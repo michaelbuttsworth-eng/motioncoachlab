@@ -48,6 +48,8 @@ export type OnboardingOut = {
 export type ProfileIn = {
   goal_mode: string;
   goal_primary: string;
+  goal_date?: string;
+  start_date?: string;
   ability_level: string;
   weekly_availability: number;
   time_per_run: string;
