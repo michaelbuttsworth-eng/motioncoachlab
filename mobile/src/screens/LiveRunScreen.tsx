@@ -18,7 +18,7 @@ import {
   stopSession,
 } from '../lib/api';
 
-type CheckStage = 'none' | 'effort' | 'fatigue' | 'pain' | 'done';
+type CheckStage = 'none' | 'effort' | 'fatigue' | 'pain_type' | 'pain_location' | 'done';
 
 type Coord = { latitude: number; longitude: number; ts: number; accuracy?: number; speed?: number | null };
 
@@ -49,7 +49,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   const [guidedCuesEnabled, setGuidedCuesEnabled] = useState(true);
   const [msg, setMsg] = useState('');
   const [checkStage, setCheckStage] = useState<CheckStage>('none');
-  const [check, setCheck] = useState({ effort: '', fatigue: '', pain: '' });
+  const [check, setCheck] = useState({ effort: '', fatigue: '', pain_type: '', pain_location: '' });
   const [routeCoords, setRouteCoords] = useState<Coord[]>([]);
   const [intervalPlan, setIntervalPlan] = useState<{ warmup: number; run: number; walk: number; repeats: number; cooldown: number } | null>(null);
   const [diag, setDiag] = useState<string[]>([]);
@@ -473,7 +473,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
       await clearActiveSession();
       setStartedAt(null);
       setIsPaused(false);
-      setMsg('Run saved. Quick check-in: effort 1-10');
+      setMsg('Run saved. Quick check-in: effort, fatigue, and pain/discomfort.');
       setCheckStage('effort');
     } catch (e: any) {
       setMsg(e?.message || 'Stop failed');
@@ -488,39 +488,42 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     }
     if (checkStage === 'fatigue') {
       setCheck((x) => ({ ...x, fatigue: value }));
-      setCheckStage('pain');
-      return;
-    }
-    if (checkStage === 'pain') {
-      setCheck((x) => ({ ...x, pain: value }));
-      submitCheckinWithScores(value);
+      setCheckStage('pain_type');
     }
   };
 
-  const deriveSessionFeel = (effort: number, fatigue: number, pain: number): string => {
-    if (pain >= 7 || (effort >= 8 && fatigue >= 8)) return 'too_hard';
-    if (effort <= 3 && fatigue <= 3 && pain <= 2) return 'too_easy';
+  const deriveSessionFeel = (effort: number, fatigue: number, painType: string): string => {
+    if (painType === 'sharp_stride_change' || painType === 'stop_run_pain' || (effort >= 8 && fatigue >= 8)) return 'too_hard';
+    if (effort <= 3 && fatigue <= 3 && painType === 'no_pain') return 'too_easy';
     return 'about_right';
   };
 
-  const submitCheckinWithScores = async (painScore?: string) => {
+  const submitCheckinWithScores = async (painType?: string, painLocation?: string) => {
     if (!sessionId) return;
     const effortN = Number(check.effort);
     const fatigueN = Number(check.fatigue);
-    const painN = Number(painScore ?? check.pain);
+    const pType = painType ?? check.pain_type;
+    const pLoc = painLocation ?? check.pain_location;
+    const painLabel: Record<string, string> = {
+      no_pain: 'none',
+      normal_discomfort: 'minor',
+      niggle: 'minor',
+      sharp_stride_change: 'pain_form',
+      stop_run_pain: 'pain_form',
+    };
     const payload = {
       effort: scoreToEffort(effortN),
       fatigue: scoreToFatigue(fatigueN),
-      pain: scoreToPain(painN),
-      session_feel: deriveSessionFeel(effortN, fatigueN, painN),
-      notes: `scores effort=${effortN}, fatigue=${fatigueN}, pain=${painN}`,
+      pain: painLabel[pType] || 'minor',
+      session_feel: deriveSessionFeel(effortN, fatigueN, pType),
+      notes: `scores effort=${effortN}, fatigue=${fatigueN}, pain_type=${pType}, pain_location=${pLoc || 'na'}`,
     };
     try {
       const res = await checkinSession(sessionId, payload);
       setCheckStage('done');
       setMsg(res.actions_applied?.length ? `Saved. ${res.actions_applied.join(' ')}` : 'Saved. No changes needed.');
       setSessionId(null);
-      setCheck({ effort: '', fatigue: '', pain: '' });
+      setCheck({ effort: '', fatigue: '', pain_type: '', pain_location: '' });
       await clearActiveSession();
     } catch (e: any) {
       try {
@@ -529,11 +532,25 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
         setCheckStage('done');
         setMsg('Check-in saved locally. Will sync when network is available.');
         setSessionId(null);
-        setCheck({ effort: '', fatigue: '', pain: '' });
+        setCheck({ effort: '', fatigue: '', pain_type: '', pain_location: '' });
       } catch {
         setMsg(e?.message || 'Check-in failed');
       }
     }
+  };
+
+  const selectPainType = (painType: string) => {
+    setCheck((x) => ({ ...x, pain_type: painType }));
+    if (painType === 'niggle' || painType === 'sharp_stride_change' || painType === 'stop_run_pain') {
+      setCheckStage('pain_location');
+      return;
+    }
+    submitCheckinWithScores(painType, '');
+  };
+
+  const selectPainLocation = (painLocation: string) => {
+    setCheck((x) => ({ ...x, pain_location: painLocation }));
+    submitCheckinWithScores(check.pain_type, painLocation);
   };
 
   const region = useMemo(() => buildRegion(routeCoords), [routeCoords]);
@@ -631,16 +648,37 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
         <View style={styles.card}>
           <Text style={styles.h2}>
             {checkStage === 'effort' && 'How hard was it?'}
-            {checkStage === 'fatigue' && 'Fatigue now?'}
-            {checkStage === 'pain' && 'Pain now?'}
+            {checkStage === 'fatigue' && 'Leg fatigue right now?'}
+            {checkStage === 'pain_type' && 'Any pain or discomfort?'}
+            {checkStage === 'pain_location' && 'Where is it?'}
           </Text>
-          <View style={styles.rowWrap}>
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-              <Pressable key={n} style={styles.scoreBtn} onPress={() => pushScore(String(n))}>
-                <Text>{n}</Text>
-              </Pressable>
-            ))}
-          </View>
+          {(checkStage === 'effort' || checkStage === 'fatigue') ? (
+            <View style={styles.rowWrap}>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                <Pressable key={n} style={styles.scoreBtn} onPress={() => pushScore(String(n))}>
+                  <Text>{n}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          {checkStage === 'pain_type' ? (
+            <View style={styles.rowWrap}>
+              <Pressable style={styles.choiceBtn} onPress={() => selectPainType('no_pain')}><Text style={styles.choiceText}>No pain</Text></Pressable>
+              <Pressable style={styles.choiceBtn} onPress={() => selectPainType('normal_discomfort')}><Text style={styles.choiceText}>Normal training discomfort</Text></Pressable>
+              <Pressable style={styles.choiceBtn} onPress={() => selectPainType('niggle')}><Text style={styles.choiceText}>Niggle</Text></Pressable>
+              <Pressable style={styles.choiceBtn} onPress={() => selectPainType('sharp_stride_change')}><Text style={styles.choiceText}>Sharp pain / changed stride</Text></Pressable>
+              <Pressable style={styles.choiceBtn} onPress={() => selectPainType('stop_run_pain')}><Text style={styles.choiceText}>Stop-run pain</Text></Pressable>
+            </View>
+          ) : null}
+          {checkStage === 'pain_location' ? (
+            <View style={styles.rowWrap}>
+              {['Foot/ankle', 'Shin/calf', 'Knee', 'Hip', 'Back', 'Other'].map((label) => (
+                <Pressable key={label} style={styles.choiceBtn} onPress={() => selectPainLocation(label)}>
+                  <Text style={styles.choiceText}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
         </View>
       ) : null}
 
@@ -760,12 +798,6 @@ function scoreToFatigue(score: number): string {
   return 'fresh';
 }
 
-function scoreToPain(score: number): string {
-  if (score >= 7) return 'pain_form';
-  if (score >= 4) return 'minor';
-  return 'none';
-}
-
 const styles = StyleSheet.create({
   wrap: { gap: 12 },
   card: { backgroundColor: '#fff', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#dae6ce', gap: 8 },
@@ -780,6 +812,8 @@ const styles = StyleSheet.create({
   primaryText: { color: '#fff', fontWeight: '700' },
   rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   scoreBtn: { width: 42, height: 42, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#edf4e7' },
+  choiceBtn: { minHeight: 40, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#edf4e7', paddingHorizontal: 12, paddingVertical: 10 },
+  choiceText: { color: '#243824', fontWeight: '600' },
   row: { flexDirection: 'row', gap: 8 },
   smallBtn: { flex: 1, padding: 10, alignItems: 'center', borderRadius: 8, backgroundColor: '#edf4e7' },
   smallBtnText: { fontWeight: '700' },

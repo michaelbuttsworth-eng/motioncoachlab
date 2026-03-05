@@ -19,7 +19,15 @@ def _ensure_run_for_user(db: Session, user_id: int, run_id: int) -> models.Run:
 
 def _apply_feedback_adaptation(db: Session, user_id: int, feedback: models.RunFeedback) -> list[str]:
     actions: list[str] = []
-    pain_red = "pain_form" in feedback.pain.lower()
+    notes = (feedback.notes or "").lower()
+    pain_type = ""
+    for part in notes.split(","):
+        if "pain_type=" in part:
+            pain_type = part.split("pain_type=", 1)[1].strip()
+            break
+
+    pain_red = (pain_type in {"sharp_stride_change", "stop_run_pain"}) or ("pain_form" in feedback.pain.lower())
+    pain_caution = pain_type == "niggle"
     hard_flag = "max" in feedback.effort.lower() or (
         "hard" in feedback.effort.lower() and "very" in feedback.fatigue.lower()
     )
@@ -29,7 +37,7 @@ def _apply_feedback_adaptation(db: Session, user_id: int, feedback: models.RunFe
         and "none" in feedback.pain.lower()
     )
 
-    if not (pain_red or hard_flag or easy_green):
+    if not (pain_red or pain_caution or hard_flag or easy_green):
         return actions
 
     start = date.today()
@@ -52,6 +60,16 @@ def _apply_feedback_adaptation(db: Session, user_id: int, feedback: models.RunFe
             row.notes = f"{(row.notes or '').strip()} Auto-adjusted after pain signal.".strip()
         if rows:
             actions.append("Pain signal detected: reduced next 72h load and switched sessions to easy effort.")
+        return actions
+
+    if pain_caution:
+        for row in rows:
+            old_km = int(row.planned_km or 0)
+            row.session_type = "Easy Run"
+            row.planned_km = max(2, int(round(old_km * 0.9)))
+            row.notes = f"{(row.notes or '').strip()} Niggle detected: keep easy and monitor next run.".strip()
+        if rows:
+            actions.append("Niggle logged: slightly reduced next 48h load and kept sessions easy.")
         return actions
 
     if hard_flag:
