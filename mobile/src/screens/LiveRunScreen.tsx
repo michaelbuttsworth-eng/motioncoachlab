@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Location from 'expo-location';
 import * as Speech from 'expo-speech';
 import * as TaskManager from 'expo-task-manager';
-import { setAudioModeAsync } from 'expo-audio';
+import { setAudioModeAsync, setIsAudioActiveAsync } from 'expo-audio';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import {
   clearActiveSession,
@@ -301,6 +301,9 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
       isSpeakingRef.current = false;
       const queued = queuedSpeechRef.current;
       queuedSpeechRef.current = null;
+      if (!queued) {
+        setIsAudioActiveAsync(false).catch(() => null);
+      }
       if (queued) {
         setTimeout(() => speak(queued.text, queued.cueType), 120);
       }
@@ -311,6 +314,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
       drainQueue();
     }, 8000);
 
+    setIsAudioActiveAsync(true).catch(() => null);
     Speech.speak(text, {
       rate: 0.95,
       pitch: 1.0,
