@@ -7,18 +7,27 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "ios": {
+        "image": "latest"
+      },
       "env": {
         "APP_ENV": "development"
       }
     },
     "preview": {
       "distribution": "internal",
+      "ios": {
+        "image": "latest"
+      },
       "env": {
         "APP_ENV": "preview"
       }
     },
     "production": {
       "autoIncrement": true,
+      "ios": {
+        "image": "latest"
+      },
       "env": {
         "APP_ENV": "production"
       }
@@ -27,7 +36,7 @@
   "submit": {
     "production": {
       "ios": {
-        "ascAppId": "REPLACE_APP_STORE_CONNECT_APP_ID"
+        "ascAppId": "6760108062"
       }
     }
   }
