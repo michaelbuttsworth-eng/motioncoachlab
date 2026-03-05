@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { generatePlan, upsertOnboarding, upsertProfile } from '../lib/api';
 
@@ -20,8 +20,8 @@ export default function OnboardingScreen({
   const [goal, setGoal] = useState('5K');
   const [goalDate, setGoalDate] = useState('');
   const [startDate, setStartDate] = useState('');
-  const [showGoalPicker, setShowGoalPicker] = useState(false);
-  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [pickerField, setPickerField] = useState<'goal' | 'start' | null>(null);
+  const [pickerDate, setPickerDate] = useState<Date>(new Date());
   const [level, setLevel] = useState('New');
   const [days, setDays] = useState(3);
   const [timePerRun, setTimePerRun] = useState('Up to 45 min');
@@ -47,14 +47,36 @@ export default function OnboardingScreen({
     return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   };
 
-  const onGoalDateChange = (event: DateTimePickerEvent, selected?: Date) => {
-    if (Platform.OS === 'android') setShowGoalPicker(false);
-    if (event.type === 'set' && selected) setGoalDate(toIsoDate(selected));
+  const openDatePicker = (field: 'goal' | 'start') => {
+    const base = field === 'goal' ? goalDate : (startDate || goalDate);
+    setPickerDate(parseIsoDate(base));
+    setPickerField(field);
   };
 
-  const onStartDateChange = (event: DateTimePickerEvent, selected?: Date) => {
-    if (Platform.OS === 'android') setShowStartPicker(false);
-    if (event.type === 'set' && selected) setStartDate(toIsoDate(selected));
+  const closeDatePicker = () => setPickerField(null);
+
+  const onDatePickerChange = (event: DateTimePickerEvent, selected?: Date) => {
+    if (!selected) {
+      if (Platform.OS === 'android') closeDatePicker();
+      return;
+    }
+    if (Platform.OS === 'android') {
+      if (event.type === 'set') {
+        const iso = toIsoDate(selected);
+        if (pickerField === 'goal') setGoalDate(iso);
+        if (pickerField === 'start') setStartDate(iso);
+      }
+      closeDatePicker();
+      return;
+    }
+    setPickerDate(selected);
+  };
+
+  const confirmDatePicker = () => {
+    const iso = toIsoDate(pickerDate);
+    if (pickerField === 'goal') setGoalDate(iso);
+    if (pickerField === 'start') setStartDate(iso);
+    closeDatePicker();
   };
 
   const submit = async () => {
@@ -136,24 +158,13 @@ export default function OnboardingScreen({
           ? 'Event date (YYYY-MM-DD)'
           : 'Date you want to run the full distance by'}
       </Text>
-      <Pressable style={styles.inputBtn} onPress={() => setShowGoalPicker((v) => !v)}>
+      <Pressable style={styles.inputBtn} onPress={() => openDatePicker('goal')}>
         <Text style={styles.inputBtnText}>{toDisplayDate(goalDate)}</Text>
       </Pressable>
-      {showGoalPicker ? (
-        <View style={styles.pickerWrap}>
-          <DateTimePicker
-            value={parseIsoDate(goalDate)}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'inline' : 'default'}
-            onChange={onGoalDateChange}
-            minimumDate={new Date()}
-          />
-        </View>
-      ) : null}
 
       <Text style={styles.label}>Desired start date (optional)</Text>
       <View style={styles.row}>
-        <Pressable style={styles.inputBtnGrow} onPress={() => setShowStartPicker((v) => !v)}>
+        <Pressable style={styles.inputBtnGrow} onPress={() => openDatePicker('start')}>
           <Text style={styles.inputBtnText}>{startDate ? toDisplayDate(startDate) : 'Select date (optional)'}</Text>
         </Pressable>
         {startDate ? (
@@ -162,16 +173,6 @@ export default function OnboardingScreen({
           </Pressable>
         ) : null}
       </View>
-      {showStartPicker ? (
-        <View style={styles.pickerWrap}>
-          <DateTimePicker
-            value={parseIsoDate(startDate || goalDate)}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'inline' : 'default'}
-            onChange={onStartDateChange}
-          />
-        </View>
-      ) : null}
 
       <Text style={styles.label}>Current level</Text>
       <View style={styles.row}>
@@ -199,6 +200,33 @@ export default function OnboardingScreen({
       <Pressable style={styles.cta} onPress={submit} disabled={saving}>
         <Text style={styles.ctaText}>{saving ? 'Saving...' : 'Create My Plan'}</Text>
       </Pressable>
+
+      {pickerField ? (
+        <Modal visible transparent animationType="fade" onRequestClose={closeDatePicker}>
+          <Pressable style={styles.modalBackdrop} onPress={closeDatePicker}>
+            <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.modalTitle}>{pickerField === 'goal' ? 'Pick target date' : 'Pick start date'}</Text>
+              <DateTimePicker
+                value={pickerDate}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={onDatePickerChange}
+                minimumDate={pickerField === 'goal' ? new Date() : undefined}
+              />
+              {Platform.OS === 'ios' ? (
+                <View style={styles.modalActions}>
+                  <Pressable style={styles.modalBtnSecondary} onPress={closeDatePicker}>
+                    <Text style={styles.modalBtnSecondaryText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable style={styles.modalBtnPrimary} onPress={confirmDatePicker}>
+                    <Text style={styles.modalBtnPrimaryText}>Done</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
     </View>
   );
 }
@@ -250,6 +278,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     padding: 6,
   },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.30)',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#dae6ce',
+  },
+  modalTitle: { fontWeight: '700', color: '#223422', marginBottom: 8 },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 8 },
+  modalBtnSecondary: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: '#edf4e7' },
+  modalBtnSecondaryText: { color: '#31512a', fontWeight: '700' },
+  modalBtnPrimary: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: '#6b8f41' },
+  modalBtnPrimaryText: { color: '#fff', fontWeight: '700' },
   clearBtn: { paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#edf4e7', justifyContent: 'center' },
   clearBtnText: { color: '#31512a', fontWeight: '700' },
   pill: { borderWidth: 1, borderColor: '#bfd4b2', backgroundColor: '#fff', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },

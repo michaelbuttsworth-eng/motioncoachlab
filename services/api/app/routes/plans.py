@@ -377,15 +377,26 @@ def generate_plan(
         db.refresh(user)
 
     profile = user.profile
+    ability_level = str(profile.ability_level or "New")
+    time_per_run = str(profile.time_per_run or "Up to 45 min")
+    preferred_days_raw = str(profile.preferred_days or "Mon/Tue/Wed/Thu/Fri/Sat/Sun")
+    injury_status = str(profile.injury_status or "None")
+    goal_primary = str(profile.goal_primary or "5K")
+    try:
+        weekly_availability = int(profile.weekly_availability or 3)
+    except Exception:
+        weekly_availability = 3
+    weekly_availability = max(1, min(6, weekly_availability))
+
     today = date.today()
     start_anchor = profile.start_date if profile.start_date and profile.start_date > today else today
     start = _week_start(start_anchor)
     horizon = _timeline_weeks(profile, weeks)
-    preferred = _parse_preferred_days(profile.preferred_days)
-    injury_mode = _injury_mode(profile.injury_status)
-    goal = _goal_key(profile.goal_primary)
+    preferred = _parse_preferred_days(preferred_days_raw)
+    injury_mode = _injury_mode(injury_status)
+    goal = _goal_key(goal_primary)
     beginner_path = _is_beginner_path(profile, goal)
-    runs_per_week = max(2, min(profile.weekly_availability, 6))
+    runs_per_week = max(2, weekly_availability)
     if beginner_path:
         runs_per_week = min(runs_per_week, 3)
     if injury_mode == "ongoing":
@@ -395,7 +406,7 @@ def generate_plan(
 
     baseline_weekly = _recent_weekly_km(db, user_id, today)
     if baseline_weekly <= 0:
-        baseline_weekly = _default_run_km(profile.ability_level) * runs_per_week
+        baseline_weekly = _default_run_km(ability_level) * runs_per_week
     peak_km = GOAL_PEAK_KM[goal]
     start_km = max(8, min(peak_km * 0.8, baseline_weekly))
 
@@ -459,8 +470,8 @@ def generate_plan(
                     run_days = sorted(run_days)[:desired_runs]
         if w == 0 and profile.start_date and profile.start_date > week_start:
             run_days = [d for d in run_days if (week_start + timedelta(days=d)) >= profile.start_date]
-        pace_min_per_km = _easy_pace_min_per_km(profile.ability_level)
-        time_cap_min = _parse_time_cap_minutes(profile.time_per_run)
+        pace_min_per_km = _easy_pace_min_per_km(ability_level)
+        time_cap_min = _parse_time_cap_minutes(time_per_run)
         per_run_cap_km = max(2, int(time_cap_min / max(4.5, pace_min_per_km)))
         if run_days:
             feasible_week_km = per_run_cap_km * len(run_days)
@@ -476,7 +487,7 @@ def generate_plan(
         db.add(week)
 
         if beginner_path:
-            run_day_map, c25k_total = _build_c25k_sessions(run_days, w, profile.ability_level)
+            run_day_map, c25k_total = _build_c25k_sessions(run_days, w, ability_level)
             week.target_km = max(0, c25k_total)
         else:
             run_day_map = _build_sessions(run_days, week_target, goal, injury_mode)
