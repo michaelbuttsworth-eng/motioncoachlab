@@ -55,7 +55,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   const [diag, setDiag] = useState<string[]>([]);
   const [syncState, setSyncState] = useState<'synced' | 'syncing' | 'pending'>('synced');
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
-  const [voiceOptions, setVoiceOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [voiceOptions, setVoiceOptions] = useState<Array<{ id: string; name: string; language?: string }>>([]);
   const [voiceIdx, setVoiceIdx] = useState(0);
   const [cueDetailMode, setCueDetailMode] = useState(true);
 
@@ -96,7 +96,8 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
         const voices = await Speech.getAvailableVoicesAsync();
         const english = voices
           .filter((v: any) => String(v.language || '').toLowerCase().startsWith('en'))
-          .map((v: any) => ({ id: String(v.identifier), name: String(v.name || v.identifier) }));
+          .map((v: any) => ({ id: String(v.identifier), name: String(v.name || v.identifier), language: String(v.language || '') }))
+          .filter((v: any) => !String(v.id).toLowerCase().includes('siri'));
         if (english.length) setVoiceOptions(english);
       } catch {
         // Keep default voice when unavailable.
@@ -254,8 +255,8 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   };
 
   const speak = (text: string) => {
-    const voice = voiceOptions[voiceIdx]?.id;
-    Speech.speak(text, { rate: 0.95, pitch: 1.0, voice });
+    const selected = voiceOptions[voiceIdx];
+    Speech.speak(text, { rate: 0.95, pitch: 1.0, voice: selected?.id, language: selected?.language || 'en-AU' });
   };
 
   const logDiag = (line: string) => {
@@ -548,10 +549,25 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
               style={styles.smallBtn}
               onPress={() => {
                 if (!voiceOptions.length) return;
-                setVoiceIdx((i) => (i + 1) % voiceOptions.length);
+                const next = (voiceIdx + 1) % voiceOptions.length;
+                setVoiceIdx(next);
+                const v = voiceOptions[next];
+                Speech.speak(`Voice selected: ${v?.name || 'Default'}`, {
+                  rate: 0.95,
+                  pitch: 1.0,
+                  voice: v?.id,
+                  language: v?.language || 'en-AU',
+                });
+                logDiag(`voice selected ${v?.name || 'Default'}`);
               }}
             >
               <Text style={styles.smallBtnText}>Voice: {voiceOptions.length ? voiceOptions[voiceIdx]?.name : 'Default'}</Text>
+            </Pressable>
+            <Pressable
+              style={styles.smallBtn}
+              onPress={() => speak('Voice test. Run cues are ready.')}
+            >
+              <Text style={styles.smallBtnText}>Test Voice</Text>
             </Pressable>
             <Pressable style={styles.primary} onPress={onStart}>
               <Text style={styles.primaryText}>Start Run</Text>
