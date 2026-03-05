@@ -76,6 +76,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   const queuedSpeechRef = useRef<{ text: string; cueType: string } | null>(null);
   const speechWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appStateRef = useRef(AppState.currentState);
+  const speechAudioModeRef = useRef(false);
 
   useEffect(() => {
     const loadPlan = async () => {
@@ -122,7 +123,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
         await setAudioModeAsync({
           playsInSilentMode: true,
           shouldPlayInBackground: true,
-          interruptionMode: 'duckOthers',
+          interruptionMode: 'mixWithOthers',
           interruptionModeAndroid: 'duckOthers',
           shouldRouteThroughEarpiece: false,
         });
@@ -328,6 +329,21 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     }
     const selected = voiceOptions[voiceIdx];
     isSpeakingRef.current = true;
+    const setSpeechAudioMode = async (enabled: boolean) => {
+      if (speechAudioModeRef.current === enabled) return;
+      try {
+        await setAudioModeAsync({
+          playsInSilentMode: true,
+          shouldPlayInBackground: true,
+          interruptionMode: enabled ? 'duckOthers' : 'mixWithOthers',
+          interruptionModeAndroid: 'duckOthers',
+          shouldRouteThroughEarpiece: false,
+        });
+        speechAudioModeRef.current = enabled;
+      } catch {
+        // Keep prior mode if this fails.
+      }
+    };
     const drainQueue = () => {
       if (speechWatchdogRef.current) {
         clearTimeout(speechWatchdogRef.current);
@@ -338,6 +354,8 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
       queuedSpeechRef.current = null;
       if (queued) {
         setTimeout(() => speak(queued.text, queued.cueType), 120);
+      } else {
+        setSpeechAudioMode(false).catch(() => null);
       }
     };
 
@@ -346,6 +364,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
       drainQueue();
     }, 8000);
 
+    setSpeechAudioMode(true).catch(() => null);
     Speech.speak(text, {
       rate: 0.95,
       pitch: 1.0,
@@ -361,9 +380,8 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
         drainQueue();
       },
       onError: () => {
+        logDiag(`tts error ${cueType}`);
         drainQueue();
-        logDiag(`tts error ${cueType}, retry default`);
-        Speech.speak(text, { rate: 0.95, pitch: 1.0, language: 'en-AU' });
       },
     });
   };
