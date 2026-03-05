@@ -72,6 +72,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   const stalledWarnedRef = useRef(false);
   const isSpeakingRef = useRef(false);
   const queuedSpeechRef = useRef<{ text: string; cueType: string } | null>(null);
+  const speechWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const loadPlan = async () => {
@@ -294,6 +295,10 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     const selected = voiceOptions[voiceIdx];
     isSpeakingRef.current = true;
     const drainQueue = () => {
+      if (speechWatchdogRef.current) {
+        clearTimeout(speechWatchdogRef.current);
+        speechWatchdogRef.current = null;
+      }
       isSpeakingRef.current = false;
       const queued = queuedSpeechRef.current;
       queuedSpeechRef.current = null;
@@ -301,6 +306,12 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
         setTimeout(() => speak(queued.text, queued.cueType), 120);
       }
     };
+
+    speechWatchdogRef.current = setTimeout(() => {
+      logDiag(`tts watchdog release ${cueType}`);
+      drainQueue();
+    }, 8000);
+
     Speech.speak(text, {
       rate: 0.95,
       pitch: 1.0,
