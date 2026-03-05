@@ -4,12 +4,19 @@
     "slug": "motioncoachlab-mobile",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/brand-assets/icon/icon-1024.png",
+    "splash": {
+      "image": "./assets/brand-assets/icon/motioncoach-mark-1024.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#E5F0DA"
+    },
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.motioncoachlab.app",
+      "icon": "./assets/brand-assets/icon/icon-1024.png",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocationWhenInUseUsageDescription": "MotionCoachLab uses location during your run to track distance and pace.",
@@ -21,6 +28,11 @@
     },
     "android": {
       "package": "com.motioncoachlab.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/brand-assets/android/adaptive-icon-foreground.png",
+        "backgroundImage": "./assets/brand-assets/android/adaptive-icon-background.png",
+        "monochromeImage": "./assets/brand-assets/android/adaptive-icon-monochrome.png"
+      },
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
@@ -28,7 +40,8 @@
       ]
     },
     "web": {
-      "bundler": "metro"
+      "bundler": "metro",
+      "favicon": "./assets/brand-assets/web/favicon.ico"
     },
     "extra": {
       "eas": {
@@ -38,7 +51,8 @@
     "owner": "butlox",
     "plugins": [
       "expo-asset",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-audio"
     ]
   }
 }
