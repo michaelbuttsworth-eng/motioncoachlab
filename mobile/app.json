@@ -58,7 +58,16 @@
         "expo-notifications",
         {
           "icon": "./assets/brand-assets/icon/icon-1024.png",
-          "color": "#6b8f41"
+          "color": "#6b8f41",
+          "sounds": [
+            "./assets/audio/cues/warmup_intro.wav",
+            "./assets/audio/cues/warmup.wav",
+            "./assets/audio/cues/run.wav",
+            "./assets/audio/cues/walk.wav",
+            "./assets/audio/cues/cooldown.wav",
+            "./assets/audio/cues/summary.wav",
+            "./assets/audio/cues/halfway.wav"
+          ]
         }
       ]
     ]

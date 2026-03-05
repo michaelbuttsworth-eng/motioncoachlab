@@ -468,7 +468,7 @@ export default function LiveRunScreen({
           content: {
             title: 'MotionCoachLab',
             body: c.text,
-            sound: 'default',
+            sound: cueSoundForType(c.type),
             data: { cueType: c.type },
           },
           trigger: {
@@ -964,6 +964,19 @@ function scoreToFatigue(score: number): string {
   if (score >= 8) return 'very_heavy';
   if (score >= 5) return 'heavy';
   return 'fresh';
+}
+
+function cueSoundForType(cueType: string): string {
+  const map: Record<string, string> = {
+    cue_warmup_intro: 'warmup_intro.wav',
+    cue_warmup: 'warmup.wav',
+    cue_run: 'run.wav',
+    cue_walk: 'walk.wav',
+    cue_cooldown: 'cooldown.wav',
+    cue_summary: 'summary.wav',
+    cue_halfway: 'halfway.wav',
+  };
+  return map[cueType] || 'default';
 }
 
 const styles = StyleSheet.create({
