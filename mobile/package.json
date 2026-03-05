@@ -16,11 +16,13 @@
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.1.2",
+    "@react-native-community/datetimepicker": "8.4.1",
     "expo": "~53.0.20",
     "expo-asset": "~11.1.7",
     "expo-audio": "~0.4.9",
     "expo-dev-client": "~5.2.4",
     "expo-location": "~18.1.6",
+    "expo-notifications": "~0.31.5",
     "expo-secure-store": "~14.2.4",
     "expo-speech": "~13.1.7",
     "expo-status-bar": "~2.2.3",

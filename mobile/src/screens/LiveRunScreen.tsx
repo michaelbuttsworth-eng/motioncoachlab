@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Location from 'expo-location';
 import * as Speech from 'expo-speech';
 import * as TaskManager from 'expo-task-manager';
-import { setAudioModeAsync, setIsAudioActiveAsync } from 'expo-audio';
+import { setAudioModeAsync } from 'expo-audio';
+import * as Notifications from 'expo-notifications';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import {
   clearActiveSession,
@@ -66,6 +67,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   const cuePlanRef = useRef<Array<{ atSec: number; text: string; type: string }>>([]);
   const cueCursorRef = useRef(0);
   const cueSessionIdRef = useRef<number | null>(null);
+  const cueNotificationIdsRef = useRef<string[]>([]);
   const pauseAccumRef = useRef<number>(0);
   const pauseStartedAtRef = useRef<number | null>(null);
   const lastPointTsRef = useRef<number | null>(null);
@@ -73,6 +75,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   const isSpeakingRef = useRef(false);
   const queuedSpeechRef = useRef<{ text: string; cueType: string } | null>(null);
   const speechWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appStateRef = useRef(AppState.currentState);
 
   useEffect(() => {
     const loadPlan = async () => {
@@ -131,6 +134,32 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   }, []);
 
   useEffect(() => {
+    const setupNotifications = async () => {
+      try {
+        await Notifications.requestPermissionsAsync();
+        await Notifications.setNotificationHandler({
+          handleNotification: async () => {
+            const isActive = appStateRef.current === 'active';
+            return {
+              shouldShowBanner: !isActive,
+              shouldShowList: true,
+              shouldPlaySound: !isActive,
+              shouldSetBadge: false,
+            };
+          },
+        });
+      } catch {
+        // Continue without lock-screen cue notifications.
+      }
+    };
+    setupNotifications();
+    const sub = AppState.addEventListener('change', (state) => {
+      appStateRef.current = state;
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
     if (!startedAt || isPaused) return;
     const id = setInterval(() => {
       const paused = pauseAccumRef.current;
@@ -145,7 +174,9 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     return () => {
       watcherRef.current?.remove();
       clearCueTimers();
+      cancelCueNotifications().catch(() => null);
       stopBackgroundUpdates();
+      Speech.stop();
     };
   }, []);
 
@@ -286,6 +317,10 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
   };
 
   const speak = (text: string, cueType = 'cue') => {
+    if (appStateRef.current !== 'active') {
+      logDiag(`tts skipped in ${appStateRef.current} (${cueType})`);
+      return;
+    }
     if (isSpeakingRef.current) {
       queuedSpeechRef.current = { text, cueType };
       logDiag(`tts queued ${cueType}`);
@@ -301,9 +336,6 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
       isSpeakingRef.current = false;
       const queued = queuedSpeechRef.current;
       queuedSpeechRef.current = null;
-      if (!queued) {
-        setIsAudioActiveAsync(false).catch(() => null);
-      }
       if (queued) {
         setTimeout(() => speak(queued.text, queued.cueType), 120);
       }
@@ -314,7 +346,6 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
       drainQueue();
     }, 8000);
 
-    setIsAudioActiveAsync(true).catch(() => null);
     Speech.speak(text, {
       rate: 0.95,
       pitch: 1.0,
@@ -388,6 +419,48 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     cueSessionIdRef.current = null;
   };
 
+  const cancelCueNotifications = async () => {
+    const ids = cueNotificationIdsRef.current;
+    cueNotificationIdsRef.current = [];
+    for (const id of ids) {
+      try {
+        await Notifications.cancelScheduledNotificationAsync(id);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const scheduleCueNotificationsFromElapsed = async (elapsedSec: number) => {
+    await cancelCueNotifications();
+    const now = Math.max(0, Math.floor(elapsedSec));
+    const remaining = cuePlanRef.current.filter((c) => c.atSec > now);
+    const ids: string[] = [];
+    for (const c of remaining) {
+      const delaySec = Math.max(1, Math.floor(c.atSec - now));
+      try {
+        const id = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'MotionCoachLab',
+            body: c.text,
+            sound: 'default',
+            data: { cueType: c.type },
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+            seconds: delaySec,
+            repeats: false,
+          },
+        });
+        ids.push(id);
+      } catch {
+        // keep scheduling remaining cues
+      }
+    }
+    cueNotificationIdsRef.current = ids;
+    logDiag(`lock cues scheduled (${ids.length})`);
+  };
+
   const processDueCues = (elapsedSec: number) => {
     if (!guidedCuesEnabled) return;
     const plan = cuePlanRef.current;
@@ -452,6 +525,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     cueCursorRef.current = 0;
     cueSessionIdRef.current = sid;
     logDiag(`cue plan loaded (${cuePlanRef.current.length} cues)`);
+    await scheduleCueNotificationsFromElapsed(0);
   };
 
   const onStart = async () => {
@@ -470,6 +544,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
       pointsRef.current = [];
       BG_POINTS = [];
       setRouteCoords([]);
+      await cancelCueNotifications();
       await startWatcher();
       await startBackgroundUpdates();
       logDiag(`session started (id ${s.id})`);
@@ -488,6 +563,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     if (!sessionId) return;
     if (!isPaused) {
       setIsPaused(true);
+      await cancelCueNotifications();
       pauseStartedAtRef.current = Date.now();
       setMsg('Paused.');
       logDiag('paused');
@@ -507,6 +583,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     try {
       await sendEvent(sessionId, 'resume');
     } catch {}
+    await scheduleCueNotificationsFromElapsed(seconds);
     await persistActive();
   };
 
@@ -515,6 +592,7 @@ export default function LiveRunScreen({ userId }: { userId: number }) {
     try {
       watcherRef.current?.remove();
       clearCueTimers();
+      await cancelCueNotifications();
       await stopBackgroundUpdates();
 
       const merged = mergePoints(pointsRef.current, BG_POINTS);

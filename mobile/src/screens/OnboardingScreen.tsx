@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { generatePlan, upsertOnboarding, upsertProfile } from '../lib/api';
 
 const GOAL_MODES = ['Prepare for an event', 'Build up to run a distance continuously'];
@@ -19,11 +20,42 @@ export default function OnboardingScreen({
   const [goal, setGoal] = useState('5K');
   const [goalDate, setGoalDate] = useState('');
   const [startDate, setStartDate] = useState('');
+  const [showGoalPicker, setShowGoalPicker] = useState(false);
+  const [showStartPicker, setShowStartPicker] = useState(false);
   const [level, setLevel] = useState('New');
   const [days, setDays] = useState(3);
   const [timePerRun, setTimePerRun] = useState('Up to 45 min');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+
+  const parseIsoDate = (value: string): Date => {
+    if (!value) return new Date();
+    const d = new Date(`${value}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? new Date() : d;
+  };
+
+  const toIsoDate = (d: Date): string => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const toDisplayDate = (value: string): string => {
+    if (!value) return 'Select date';
+    const d = parseIsoDate(value);
+    return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const onGoalDateChange = (event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS === 'android') setShowGoalPicker(false);
+    if (event.type === 'set' && selected) setGoalDate(toIsoDate(selected));
+  };
+
+  const onStartDateChange = (event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS === 'android') setShowStartPicker(false);
+    if (event.type === 'set' && selected) setStartDate(toIsoDate(selected));
+  };
 
   const submit = async () => {
     setSaving(true);
@@ -102,24 +134,44 @@ export default function OnboardingScreen({
       <Text style={styles.label}>
         {goalMode === 'Prepare for an event'
           ? 'Event date (YYYY-MM-DD)'
-          : 'Date you want to run the full distance by (YYYY-MM-DD)'}
+          : 'Date you want to run the full distance by'}
       </Text>
-      <TextInput
-        style={styles.input}
-        value={goalDate}
-        onChangeText={setGoalDate}
-        placeholder="YYYY-MM-DD"
-        autoCapitalize="none"
-      />
+      <Pressable style={styles.inputBtn} onPress={() => setShowGoalPicker((v) => !v)}>
+        <Text style={styles.inputBtnText}>{toDisplayDate(goalDate)}</Text>
+      </Pressable>
+      {showGoalPicker ? (
+        <View style={styles.pickerWrap}>
+          <DateTimePicker
+            value={parseIsoDate(goalDate)}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'inline' : 'default'}
+            onChange={onGoalDateChange}
+            minimumDate={new Date()}
+          />
+        </View>
+      ) : null}
 
       <Text style={styles.label}>Desired start date (optional)</Text>
-      <TextInput
-        style={styles.input}
-        value={startDate}
-        onChangeText={setStartDate}
-        placeholder="YYYY-MM-DD"
-        autoCapitalize="none"
-      />
+      <View style={styles.row}>
+        <Pressable style={styles.inputBtnGrow} onPress={() => setShowStartPicker((v) => !v)}>
+          <Text style={styles.inputBtnText}>{startDate ? toDisplayDate(startDate) : 'Select date (optional)'}</Text>
+        </Pressable>
+        {startDate ? (
+          <Pressable style={styles.clearBtn} onPress={() => setStartDate('')}>
+            <Text style={styles.clearBtnText}>Clear</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      {showStartPicker ? (
+        <View style={styles.pickerWrap}>
+          <DateTimePicker
+            value={parseIsoDate(startDate || goalDate)}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'inline' : 'default'}
+            onChange={onStartDateChange}
+          />
+        </View>
+      ) : null}
 
       <Text style={styles.label}>Current level</Text>
       <View style={styles.row}>
@@ -173,7 +225,7 @@ const styles = StyleSheet.create({
   sub: { color: '#5a6f54', marginBottom: 6 },
   label: { marginTop: 8, fontWeight: '700', color: '#223422' },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  input: {
+  inputBtn: {
     borderWidth: 1,
     borderColor: '#bfd4b2',
     backgroundColor: '#fff',
@@ -181,6 +233,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  inputBtnGrow: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#bfd4b2',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  inputBtnText: { color: '#223422', fontWeight: '600' },
+  pickerWrap: {
+    borderWidth: 1,
+    borderColor: '#dcead0',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    padding: 6,
+  },
+  clearBtn: { paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#edf4e7', justifyContent: 'center' },
+  clearBtnText: { color: '#31512a', fontWeight: '700' },
   pill: { borderWidth: 1, borderColor: '#bfd4b2', backgroundColor: '#fff', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
   pillOn: { backgroundColor: '#6b8f41', borderColor: '#6b8f41' },
   pillText: { color: '#2c4022', fontWeight: '600' },

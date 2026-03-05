@@ -52,7 +52,15 @@
     "plugins": [
       "expo-asset",
       "expo-secure-store",
-      "expo-audio"
+      "expo-audio",
+      "@react-native-community/datetimepicker",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/brand-assets/icon/icon-1024.png",
+          "color": "#6b8f41"
+        }
+      ]
     ]
   }
 }

@@ -218,11 +218,13 @@ def mobile_plan_today(
         raise HTTPException(status_code=404, detail="No plan for today")
 
     interval = _parse_c25k(row.notes)
+    planned_km = float(row.planned_km or 0)
+    session_type = str(row.session_type or "Run/Walk")
     return {
         "user_id": user_id,
         "day": row.day,
-        "session_type": row.session_type,
-        "planned_km": row.planned_km,
+        "session_type": session_type,
+        "planned_km": planned_km,
         "notes": row.notes,
         "interval": interval,
     }

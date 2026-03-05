@@ -310,7 +310,7 @@ class MobilePlanTodayOut(BaseModel):
     user_id: int
     day: date
     session_type: str
-    planned_km: int
+    planned_km: float
     notes: Optional[str] = None
     interval: Optional[dict] = None
 
