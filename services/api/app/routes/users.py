@@ -13,6 +13,18 @@ def _week_start(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 
+def _normalize_goal_mode(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    lowered = text.lower()
+    if lowered in {"prepare for an event", "event prep", "event"}:
+        return "Event prep"
+    if lowered in {"build up to run a distance continuously", "distance build", "distance"}:
+        return "Distance build"
+    return text[:30]
+
+
 @router.post("/", response_model=schemas.UserOut)
 def create_user(payload: schemas.UserCreate, db: Session = Depends(get_db)):
     user = models.User(**payload.model_dump())
@@ -48,12 +60,19 @@ def upsert_profile(user_id: int, payload: schemas.ProfileCreate, db: Session = D
     user = db.get(models.User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    data = payload.model_dump()
+    data["goal_mode"] = _normalize_goal_mode(data.get("goal_mode"))
+    if isinstance(data.get("time_per_run"), str):
+        data["time_per_run"] = str(data["time_per_run"])[:20]
+    if isinstance(data.get("preferred_days"), str):
+        data["preferred_days"] = str(data["preferred_days"])[:40]
+
     if user.profile:
-        for key, value in payload.model_dump().items():
+        for key, value in data.items():
             setattr(user.profile, key, value)
         profile = user.profile
     else:
-        profile = models.Profile(user_id=user_id, **payload.model_dump())
+        profile = models.Profile(user_id=user_id, **data)
         db.add(profile)
     db.commit()
     db.refresh(profile)
@@ -105,12 +124,20 @@ def upsert_onboarding(
     user = db.get(models.User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    data = payload.model_dump(exclude_unset=True)
+    if "goal_mode" in data:
+        data["goal_mode"] = _normalize_goal_mode(data.get("goal_mode"))
+    if isinstance(data.get("time_per_run"), str):
+        data["time_per_run"] = str(data["time_per_run"])[:20]
+    if isinstance(data.get("preferred_days"), str):
+        data["preferred_days"] = str(data["preferred_days"])[:40]
+
     if user.onboarding:
-        for key, value in payload.model_dump(exclude_unset=True).items():
+        for key, value in data.items():
             setattr(user.onboarding, key, value)
         onboarding = user.onboarding
     else:
-        onboarding = models.OnboardingState(user_id=user_id, **payload.model_dump(exclude_unset=True))
+        onboarding = models.OnboardingState(user_id=user_id, **data)
         db.add(onboarding)
     db.commit()
     db.refresh(onboarding)

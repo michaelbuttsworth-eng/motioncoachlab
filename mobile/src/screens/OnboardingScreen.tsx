@@ -22,10 +22,12 @@ export default function OnboardingScreen({
   userId: number;
   onDone: () => void;
 }) {
+  const now = new Date();
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const [goalMode, setGoalMode] = useState<'Prepare for an event' | 'Build up to run a distance continuously'>('Build up to run a distance continuously');
   const [goal, setGoal] = useState('5K');
   const [goalDate, setGoalDate] = useState('');
-  const [startDate, setStartDate] = useState('');
+  const [startDate, setStartDate] = useState(todayIso);
   const [pickerField, setPickerField] = useState<'goal' | 'start' | null>(null);
   const [pickerDate, setPickerDate] = useState<Date>(new Date());
   const [level, setLevel] = useState('New');
@@ -88,7 +90,7 @@ export default function OnboardingScreen({
   })();
 
   const openDatePicker = (field: 'goal' | 'start') => {
-    const base = field === 'goal' ? goalDate : (startDate || goalDate);
+    const base = field === 'goal' ? goalDate : (startDate || todayIso);
     setPickerDate(parseIsoDate(base));
     setPickerField(field);
   };
@@ -145,10 +147,10 @@ export default function OnboardingScreen({
       const inferredContinuousMin = level === 'Regular' ? 25 : level === 'Returning' ? 12 : 5;
       await upsertOnboarding(userId, {
         current_step: 99,
-        goal_mode: goalMode,
+        goal_mode: modeDb,
         goal_primary: goal,
         goal_date: goalDate,
-        start_date: startDate || undefined,
+        start_date: startDate,
         ability_level: level,
         weekly_availability: days,
         time_per_run: timePerRun,
@@ -158,7 +160,7 @@ export default function OnboardingScreen({
         goal_mode: modeDb,
         goal_primary: goal,
         goal_date: goalDate,
-        start_date: startDate || undefined,
+        start_date: startDate,
         ability_level: level,
         weekly_availability: days,
         time_per_run: timePerRun,
@@ -213,16 +215,11 @@ export default function OnboardingScreen({
         <Text style={styles.inputBtnText}>{toDisplayDate(goalDate)}</Text>
       </Pressable>
 
-      <Text style={styles.label}>Desired start date (optional)</Text>
+      <Text style={styles.label}>Desired start date</Text>
       <View style={styles.row}>
         <Pressable style={styles.inputBtnGrow} onPress={() => openDatePicker('start')}>
-          <Text style={styles.inputBtnText}>{startDate ? toDisplayDate(startDate) : 'Select date (optional)'}</Text>
+          <Text style={styles.inputBtnText}>{toDisplayDate(startDate)}</Text>
         </Pressable>
-        {startDate ? (
-          <Pressable style={styles.clearBtn} onPress={() => setStartDate('')}>
-            <Text style={styles.clearBtnText}>Clear</Text>
-          </Pressable>
-        ) : null}
       </View>
 
       <Text style={styles.label}>Current level</Text>
