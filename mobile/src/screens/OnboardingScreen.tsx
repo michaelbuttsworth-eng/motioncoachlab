@@ -56,6 +56,7 @@ export default function OnboardingScreen({
   const [err, setErr] = useState('');
   const [goalDateTouched, setGoalDateTouched] = useState(false);
   const [pickerField, setPickerField] = useState<PickerField>(null);
+  const [draftDateIso, setDraftDateIso] = useState<string>('');
 
   const parseIsoDate = (value: string): Date => {
     if (!value) return new Date();
@@ -134,7 +135,13 @@ export default function OnboardingScreen({
 
   const openPicker = (field: PickerField) => {
     if (!field) return;
-    setPickerField((prev) => (prev === field ? null : field));
+    setPickerField((prev) => {
+      const next = prev === field ? null : field;
+      if (next) {
+        setDraftDateIso(next === 'start' ? startDate : goalDate || recommendedGoalDateIso);
+      }
+      return next;
+    });
   };
 
   const onStartDateChange = (event: DateTimePickerEvent, selected?: Date) => {
@@ -145,8 +152,12 @@ export default function OnboardingScreen({
       setPickerField(null);
       return;
     }
-    setStartDate(toIsoDate(selected));
-    if (Platform.OS === 'android') setPickerField(null);
+    const iso = toIsoDate(selected);
+    setDraftDateIso(iso);
+    if (Platform.OS === 'android') {
+      setStartDate(iso);
+      setPickerField(null);
+    }
   };
   const onGoalDateChange = (event: DateTimePickerEvent, selected?: Date) => {
     if (!selected) return;
@@ -155,11 +166,33 @@ export default function OnboardingScreen({
       return;
     }
     const iso = toIsoDate(selected);
-    if (isoDayNumber(iso) >= isoDayNumber(minGoalDateIso)) {
-      setGoalDate(iso);
-      setGoalDateTouched(true);
+    setDraftDateIso(iso);
+    if (Platform.OS === 'android') {
+      if (isoDayNumber(iso) >= isoDayNumber(minGoalDateIso)) {
+        setGoalDate(iso);
+        setGoalDateTouched(true);
+      }
+      setPickerField(null);
     }
-    if (Platform.OS === 'android') setPickerField(null);
+  };
+
+  const closePicker = () => {
+    if (pickerField === 'start') {
+      setStartDate(draftDateIso || startDate);
+      setPickerField(null);
+      return;
+    }
+    if (pickerField === 'goal') {
+      const picked = draftDateIso || goalDate;
+      if (isoDayNumber(picked) >= isoDayNumber(minGoalDateIso)) {
+        setGoalDate(picked);
+        setGoalDateTouched(true);
+      } else {
+        setGoalDate(minGoalDateIso);
+        setGoalDateTouched(true);
+      }
+      setPickerField(null);
+    }
   };
 
   const canNextStep = () => {
@@ -383,22 +416,24 @@ export default function OnboardingScreen({
 
       {Platform.OS === 'ios' && pickerField ? (
         <Modal transparent animationType="slide" visible onRequestClose={() => setPickerField(null)}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setPickerField(null)} />
+          <Pressable style={styles.modalBackdrop} onPress={closePicker} />
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>
-              {pickerField === 'start' ? 'Desired start date' : 'Date to run full distance by'}
-            </Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {pickerField === 'start' ? 'Desired start date' : 'Date to run full distance by'}
+              </Text>
+              <Pressable onPress={closePicker} hitSlop={8}>
+                <Text style={styles.modalDone}>Done</Text>
+              </Pressable>
+            </View>
             <DateTimePicker
-              value={parseIsoDate(pickerField === 'start' ? startDate : goalDate)}
+              value={parseIsoDate(draftDateIso || (pickerField === 'start' ? startDate : goalDate))}
               mode="date"
               display="spinner"
               onChange={pickerField === 'start' ? onStartDateChange : onGoalDateChange}
               minimumDate={pickerField === 'goal' ? parseIsoDate(minGoalDateIso) : undefined}
               style={styles.iosPicker}
             />
-            <Pressable style={styles.cta} onPress={() => setPickerField(null)}>
-              <Text style={styles.ctaText}>Done</Text>
-            </Pressable>
           </View>
         </Modal>
       ) : null}
@@ -516,11 +551,21 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     paddingHorizontal: 14,
     paddingTop: 10,
-    paddingBottom: 24,
+    paddingBottom: 40,
     gap: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   modalTitle: {
     color: theme.colors.text,
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  modalDone: {
+    color: theme.colors.accent,
     fontWeight: '700',
     fontSize: 16,
   },

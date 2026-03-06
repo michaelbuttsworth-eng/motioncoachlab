@@ -545,6 +545,13 @@ def generate_plan(
                         )
                 week.target_km = sum(km for _, km, _ in run_day_map.values())
 
+        if w == 0 and profile.start_date:
+            start_idx = (profile.start_date - week_start).days
+            if 0 <= start_idx <= 6 and run_day_map and start_idx not in run_day_map:
+                # Ensure selected start day is an active run in week 1.
+                donor_idx = sorted(run_day_map.keys())[-1]
+                run_day_map[start_idx] = run_day_map.pop(donor_idx)
+
         # Persist full-date horizon: run days + explicit rest days.
         for d in range(7):
             session, km, note = run_day_map.get(d, ("Rest", 0, None))
