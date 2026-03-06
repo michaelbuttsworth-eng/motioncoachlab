@@ -321,7 +321,11 @@ class MobileProgressOut(BaseModel):
     week_motion_min: float
     week_distance_km: float
     total_distance_km: float
-    run_streak_days: int
+    plan_adherence_pct: float
+    on_time_completion_pct: float
+    consistency_score: float
+    training_load_trend_pct: float
+    training_load_trend_label: str
 
 
 class MobileHistoryItemOut(BaseModel):

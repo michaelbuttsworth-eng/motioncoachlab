@@ -34,10 +34,17 @@ export default function ProgressScreen({ userId }: { userId: number }) {
 
       {data ? (
         <View style={styles.card}>
+          <Stat label="Plan adherence" value={`${data.plan_adherence_pct}%`} />
+          <Stat label="On-time completion" value={`${data.on_time_completion_pct}%`} />
+          <Stat label="Consistency score" value={`${data.consistency_score}/100`} />
+          <Stat
+            label="Training load trend"
+            value={`${data.training_load_trend_pct > 0 ? '+' : ''}${data.training_load_trend_pct}% (${data.training_load_trend_label})`}
+          />
+          <View style={styles.sep} />
           <Stat label="This week motion" value={`${data.week_motion_min} min`} />
           <Stat label="This week distance" value={`${data.week_distance_km} km`} />
           <Stat label="Total distance" value={`${data.total_distance_km} km`} />
-          <Stat label="Run streak" value={`${data.run_streak_days} day(s)`} />
           <Text style={styles.meta}>Week starts: {data.week_start}</Text>
         </View>
       ) : (
@@ -61,6 +68,7 @@ const styles = StyleSheet.create({
   refresh: { backgroundColor: '#6b8f41', borderRadius: 10, padding: 12, alignItems: 'center' },
   refreshText: { color: '#fff', fontWeight: '700' },
   card: { backgroundColor: '#fff', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#dae6ce', gap: 10 },
+  sep: { height: 1, backgroundColor: '#e7efde' },
   statRow: { flexDirection: 'row', justifyContent: 'space-between' },
   statLabel: { color: '#4b6143' },
   statValue: { fontWeight: '700', color: '#1c2a1b' },

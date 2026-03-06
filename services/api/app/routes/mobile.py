@@ -21,6 +21,37 @@ def _week_start(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 
+def _match_planned_sessions_to_runs(
+    planned_run_days: list[date],
+    run_dates: list[date],
+    grace_days: int = 2,
+) -> tuple[int, int, int]:
+    # completed = same-day + delayed(within grace)
+    # delayed = matched but after planned day
+    # on_time = matched on the same day
+    used = [False] * len(run_dates)
+    completed = 0
+    delayed = 0
+    on_time = 0
+    for plan_day in sorted(planned_run_days):
+        match_idx = None
+        for i, run_day in enumerate(run_dates):
+            if used[i]:
+                continue
+            if plan_day <= run_day <= (plan_day + timedelta(days=grace_days)):
+                match_idx = i
+                break
+        if match_idx is None:
+            continue
+        used[match_idx] = True
+        completed += 1
+        if run_dates[match_idx] > plan_day:
+            delayed += 1
+        else:
+            on_time += 1
+    return completed, delayed, on_time
+
+
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
@@ -252,14 +283,65 @@ def mobile_progress(
     week_distance_km = round(sum((r.distance_m or 0) for r in week_runs) / 1000.0, 2)
     week_motion_min = round(sum((r.duration_s or 0) for r in week_runs) / 60.0, 1)
 
-    run_days = sorted({r.start_time.date() for r in runs}, reverse=True)
-    streak = 0
-    if run_days:
-        cursor = today if run_days[0] >= today else run_days[0]
-        day_set = set(run_days)
-        while cursor in day_set:
-            streak += 1
-            cursor = cursor - timedelta(days=1)
+    window_days = 28
+    period_start = today - timedelta(days=window_days - 1)
+
+    planned_days = (
+        db.query(models.PlanDay)
+        .filter(
+            models.PlanDay.user_id == user_id,
+            models.PlanDay.day >= period_start,
+            models.PlanDay.day <= today,
+        )
+        .all()
+    )
+    planned_run_days = [
+        d.day
+        for d in planned_days
+        if str(d.session_type or "").lower() != "rest" and float(d.planned_km or 0) > 0
+    ]
+    run_dates = sorted(
+        [
+            r.start_time.date()
+            for r in runs
+            if period_start <= r.start_time.date() <= today
+        ]
+    )
+    planned_sessions = len(planned_run_days)
+    completed_sessions, delayed_sessions, on_time_sessions = _match_planned_sessions_to_runs(
+        planned_run_days, run_dates
+    )
+
+    plan_adherence_pct = round((completed_sessions / planned_sessions) * 100.0, 1) if planned_sessions else 0.0
+    on_time_completion_pct = (
+        round((on_time_sessions / planned_sessions) * 100.0, 1) if planned_sessions else 0.0
+    )
+    delay_rate = (delayed_sessions / planned_sessions) if planned_sessions else 0.0
+    consistency_score = round(max(0.0, (0.7 * (plan_adherence_pct / 100.0)) + (0.3 * (1.0 - delay_rate))) * 100, 1)
+
+    load_by_week: dict[date, float] = {}
+    for r in runs:
+        d = r.start_time.date()
+        if d < (today - timedelta(days=27)) or d > today:
+            continue
+        ws = _week_start(d)
+        distance_km = float(r.distance_m or 0) / 1000.0
+        duration_min = float(r.duration_s or 0) / 60.0
+        load = distance_km + (duration_min / 10.0)
+        load_by_week[ws] = load_by_week.get(ws, 0.0) + load
+
+    current_load = round(load_by_week.get(wk, 0.0), 2)
+    prior_load = round(load_by_week.get(wk - timedelta(days=7), 0.0), 2)
+    if prior_load <= 0:
+        trend_pct = 0.0 if current_load <= 0 else 100.0
+    else:
+        trend_pct = round(((current_load - prior_load) / prior_load) * 100.0, 1)
+    if trend_pct >= 7:
+        trend_label = "building"
+    elif trend_pct <= -7:
+        trend_label = "recovering"
+    else:
+        trend_label = "stable"
 
     return {
         "user_id": user_id,
@@ -267,7 +349,11 @@ def mobile_progress(
         "week_motion_min": week_motion_min,
         "week_distance_km": week_distance_km,
         "total_distance_km": total_km,
-        "run_streak_days": streak,
+        "plan_adherence_pct": plan_adherence_pct,
+        "on_time_completion_pct": on_time_completion_pct,
+        "consistency_score": consistency_score,
+        "training_load_trend_pct": trend_pct,
+        "training_load_trend_label": trend_label,
     }
 
 

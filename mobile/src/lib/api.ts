@@ -105,7 +105,11 @@ export type MobileProgress = {
   week_motion_min: number;
   week_distance_km: number;
   total_distance_km: number;
-  run_streak_days: number;
+  plan_adherence_pct: number;
+  on_time_completion_pct: number;
+  consistency_score: number;
+  training_load_trend_pct: number;
+  training_load_trend_label: 'building' | 'stable' | 'recovering';
 };
 
 export type MobileHistoryItem = {
