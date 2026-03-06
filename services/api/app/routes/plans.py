@@ -183,14 +183,11 @@ def _build_c25k_sessions(
     if not run_days:
         return sessions, 0
     run_days = sorted(run_days)[:3]
-    run_min, walk_min, _ = C25K_STEPS[min(week_index, len(C25K_STEPS) - 1)]
+    run_min, walk_min, repeats = C25K_STEPS[min(week_index, len(C25K_STEPS) - 1)]
     week_motion_target = _c25k_motion_target(week_index)
-    session_motion_target = max(25, int(round(week_motion_target / max(1, len(run_days)))))
     warmup = 5.0
     cooldown = 5.0
     cycle_min = max(1.0, run_min + walk_min)
-    motion_core = max(10.0, session_motion_target - warmup - cooldown)
-    repeats = max(1, int(round(motion_core / cycle_min)))
     total_min = warmup + cooldown + (repeats * cycle_min)
     # C25K pilot is motion-first; keep distance intentionally low to avoid pressure.
     est_km = 1
