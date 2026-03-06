@@ -1,19 +1,37 @@
-import React, { useState } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { generatePlan, upsertOnboarding, upsertProfile } from '../lib/api';
+import { theme } from '../ui/theme';
 
-const GOAL_MODES = ['Prepare for an event', 'Build up to run a distance continuously'];
-const GOALS = ['5K', '10K', 'Half', 'Marathon', 'Ultra/Other'];
-const LEVELS = ['New', 'Returning', 'Regular'];
-const TIME_OPTIONS = ['Up to 30 min', 'Up to 45 min', 'Up to 60 min'];
-const DAYS = [2, 3, 4, 5, 6];
+const GOAL_MODES = ['Prepare for an event', 'Build up to run a distance continuously'] as const;
+const GOALS = ['5K', '10K', 'Half', 'Marathon', 'Ultra/Other'] as const;
+const LEVELS = ['New', 'Returning', 'Regular'] as const;
+const TIME_OPTIONS = ['Up to 30 min', 'Up to 45 min', 'Up to 60 min'] as const;
+const DAYS = [1, 2, 3, 4, 5, 6, 7] as const;
 const RECENT_RUN_OPTIONS: Array<{ label: string; value: number }> = [
   { label: '0 / week', value: 0 },
   { label: '1 / week', value: 1 },
   { label: '2 / week', value: 2 },
   { label: '3+ / week', value: 3 },
 ];
+
+const MIN_WEEKS_BY_GOAL: Record<(typeof GOALS)[number], { new: number; returning: number; regular: number }> = {
+  '5K': { new: 8, returning: 7, regular: 6 },
+  '10K': { new: 12, returning: 10, regular: 8 },
+  Half: { new: 16, returning: 14, regular: 12 },
+  Marathon: { new: 30, returning: 24, regular: 20 },
+  'Ultra/Other': { new: 40, returning: 32, regular: 26 },
+};
+
+type Step = 1 | 2 | 3 | 4;
+type PickerField = 'start' | 'goal' | null;
+
+const isoDayNumber = (iso: string): number => {
+  const [y, m, d] = iso.split('-').map((v) => Number(v));
+  if (!y || !m || !d) return 0;
+  return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+};
 
 export default function OnboardingScreen({
   userId,
@@ -24,23 +42,27 @@ export default function OnboardingScreen({
 }) {
   const now = new Date();
   const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const [goalMode, setGoalMode] = useState<'Prepare for an event' | 'Build up to run a distance continuously'>('Build up to run a distance continuously');
-  const [goal, setGoal] = useState('5K');
+
+  const [step, setStep] = useState<Step>(1);
+  const [goalMode, setGoalMode] = useState<(typeof GOAL_MODES)[number]>('Build up to run a distance continuously');
+  const [goal, setGoal] = useState<(typeof GOALS)[number]>('5K');
   const [goalDate, setGoalDate] = useState('');
   const [startDate, setStartDate] = useState(todayIso);
-  const [pickerField, setPickerField] = useState<'goal' | 'start' | null>(null);
-  const [pickerDate, setPickerDate] = useState<Date>(new Date());
-  const [level, setLevel] = useState('New');
+  const [level, setLevel] = useState<(typeof LEVELS)[number]>('New');
   const [recentRunsPerWeek, setRecentRunsPerWeek] = useState(0);
-  const [days, setDays] = useState(3);
-  const [timePerRun, setTimePerRun] = useState('Up to 45 min');
+  const [days, setDays] = useState<(typeof DAYS)[number]>(3);
+  const [timePerRun, setTimePerRun] = useState<(typeof TIME_OPTIONS)[number]>('Up to 45 min');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [goalDateTouched, setGoalDateTouched] = useState(false);
+  const [pickerField, setPickerField] = useState<PickerField>(null);
 
   const parseIsoDate = (value: string): Date => {
     if (!value) return new Date();
-    const d = new Date(`${value}T00:00:00`);
-    return Number.isNaN(d.getTime()) ? new Date() : d;
+    const parts = value.split('-').map((v) => Number(v));
+    if (parts.length !== 3 || parts.some((p) => Number.isNaN(p))) return new Date();
+    const [y, m, d] = parts;
+    return new Date(y, m - 1, d, 12, 0, 0, 0);
   };
 
   const toIsoDate = (d: Date): string => {
@@ -50,75 +72,101 @@ export default function OnboardingScreen({
     return `${y}-${m}-${day}`;
   };
 
+  const addDaysIso = (iso: string, daysToAdd: number): string => {
+    const [y, m, d] = iso.split('-').map((v) => Number(v));
+    const utc = Date.UTC(y, m - 1, d) + daysToAdd * 86400000;
+    const next = new Date(utc);
+    return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(
+      next.getUTCDate()
+    ).padStart(2, '0')}`;
+  };
+
   const toDisplayDate = (value: string): string => {
     if (!value) return 'Select date';
     const d = parseIsoDate(value);
     return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   };
 
-  const isC25KGoal = goal === '5K' && (goalMode === 'Build up to run a distance continuously' || goalMode === 'Prepare for an event');
+  const baseline = useMemo<'new' | 'returning' | 'regular'>(() => {
+    if (level === 'New' || recentRunsPerWeek <= 0) return 'new';
+    if (level === 'Returning' || recentRunsPerWeek <= 2) return 'returning';
+    return 'regular';
+  }, [level, recentRunsPerWeek]);
 
-  const c25kTiming = (() => {
-    if (!isC25KGoal) return null;
-    if (recentRunsPerWeek <= 0 || level === 'New') return { hardMinWeeks: 8, recommendedWeeks: 9, profile: 'new' as const };
-    if (recentRunsPerWeek <= 2 || level === 'Returning') return { hardMinWeeks: 7, recommendedWeeks: 8, profile: 'returning' as const };
-    return { hardMinWeeks: 6, recommendedWeeks: 6, profile: 'regular' as const };
-  })();
+  const timeline = useMemo(() => {
+    const hardMinWeeks = MIN_WEEKS_BY_GOAL[goal][baseline];
+    const recommendedWeeks = hardMinWeeks + (goal === '5K' ? 1 : 2);
+    return { hardMinWeeks, recommendedWeeks };
+  }, [goal, baseline]);
 
-  const timelineBaseDate = parseIsoDate(startDate);
-  const minGoalDateForPicker = (() => {
-    if (!c25kTiming) return new Date();
-    return new Date(timelineBaseDate.getTime() + (c25kTiming.hardMinWeeks * 7 * 24 * 60 * 60 * 1000));
-  })();
+  const minGoalDateIso = useMemo(
+    () => addDaysIso(startDate, timeline.hardMinWeeks * 7),
+    [startDate, timeline.hardMinWeeks]
+  );
+  const recommendedGoalDateIso = useMemo(
+    () => addDaysIso(startDate, timeline.recommendedWeeks * 7),
+    [startDate, timeline.recommendedWeeks]
+  );
 
-  const recommendedGoalDate = (() => {
-    if (!c25kTiming) return null;
-    return new Date(timelineBaseDate.getTime() + (c25kTiming.recommendedWeeks * 7 * 24 * 60 * 60 * 1000));
-  })();
-
-  const goalTimingMessage = (() => {
-    if (!c25kTiming || !goalDate) return '';
-    const picked = parseIsoDate(goalDate);
-    const hard = minGoalDateForPicker;
-    if (picked < hard) {
-      return `Too soon for a safe Couch-to-5K start. Earliest target date: ${hard.toLocaleDateString('en-AU')}.`;
+  useEffect(() => {
+    // Keep default target date realistic for selected distance + fitness baseline.
+    if (!goalDate) {
+      setGoalDate(recommendedGoalDateIso);
+      setGoalDateTouched(false);
+      return;
     }
-    if (recommendedGoalDate && picked < recommendedGoalDate) {
-      return `Fast timeline selected. We recommend ${c25kTiming.recommendedWeeks} weeks for your current baseline.`;
+    if (isoDayNumber(goalDate) < isoDayNumber(minGoalDateIso)) {
+      setGoalDate(recommendedGoalDateIso);
+      setGoalDateTouched(false);
+    }
+  }, [goal, startDate, level, recentRunsPerWeek, minGoalDateIso, recommendedGoalDateIso]);
+
+  const goalTimingMessage = useMemo(() => {
+    if (!goalDate) return '';
+    if (isoDayNumber(goalDate) < isoDayNumber(minGoalDateIso)) {
+      return `Too soon for a safe timeline. Earliest target date: ${toDisplayDate(minGoalDateIso)}.`;
+    }
+    if (goalDateTouched && isoDayNumber(goalDate) < isoDayNumber(recommendedGoalDateIso)) {
+      return `Aggressive timeline selected. Recommended date: ${toDisplayDate(recommendedGoalDateIso)}.`;
     }
     return '';
-  })();
+  }, [goalDate, minGoalDateIso, recommendedGoalDateIso, goalDateTouched]);
 
-  const openDatePicker = (field: 'goal' | 'start') => {
-    const base = field === 'goal' ? goalDate : (startDate || todayIso);
-    setPickerDate(parseIsoDate(base));
-    setPickerField(field);
+  const openPicker = (field: PickerField) => {
+    if (!field) return;
+    setPickerField((prev) => (prev === field ? null : field));
   };
 
-  const closeDatePicker = () => setPickerField(null);
-
-  const onDatePickerChange = (event: DateTimePickerEvent, selected?: Date) => {
+  const onStartDateChange = (event: DateTimePickerEvent, selected?: Date) => {
     if (!selected) {
-      if (Platform.OS === 'android') closeDatePicker();
       return;
     }
-    if (Platform.OS === 'android') {
-      if (event.type === 'set') {
-        const iso = toIsoDate(selected);
-        if (pickerField === 'goal') setGoalDate(iso);
-        if (pickerField === 'start') setStartDate(iso);
-      }
-      closeDatePicker();
+    if (Platform.OS === 'android' && event.type !== 'set') {
+      setPickerField(null);
       return;
     }
-    setPickerDate(selected);
+    setStartDate(toIsoDate(selected));
+    if (Platform.OS === 'android') setPickerField(null);
+  };
+  const onGoalDateChange = (event: DateTimePickerEvent, selected?: Date) => {
+    if (!selected) return;
+    if (Platform.OS === 'android' && event.type !== 'set') {
+      setPickerField(null);
+      return;
+    }
+    const iso = toIsoDate(selected);
+    if (isoDayNumber(iso) >= isoDayNumber(minGoalDateIso)) {
+      setGoalDate(iso);
+      setGoalDateTouched(true);
+    }
+    if (Platform.OS === 'android') setPickerField(null);
   };
 
-  const confirmDatePicker = () => {
-    const iso = toIsoDate(pickerDate);
-    if (pickerField === 'goal') setGoalDate(iso);
-    if (pickerField === 'start') setStartDate(iso);
-    closeDatePicker();
+  const canNextStep = () => {
+    if (step === 1) return !!goalMode && !!goal;
+    if (step === 2) return !!goalDate && isoDayNumber(goalDate) >= isoDayNumber(minGoalDateIso);
+    if (step === 3) return !!level;
+    return true;
   };
 
   const submit = async () => {
@@ -126,22 +174,15 @@ export default function OnboardingScreen({
     setErr('');
     try {
       const modeDb = goalMode === 'Prepare for an event' ? 'Event prep' : 'Distance build';
-      const dateLabel =
-        goalMode === 'Prepare for an event'
-          ? 'Event date (YYYY-MM-DD)'
-          : 'Target date to run full distance (YYYY-MM-DD)';
       if (!goalDate) {
-        setErr(`${dateLabel} is required.`);
+        setErr('Target date is required.');
         setSaving(false);
         return;
       }
-      if (c25kTiming) {
-        const picked = parseIsoDate(goalDate);
-        if (picked < minGoalDateForPicker) {
-          setErr(`Pick a later goal date. Earliest safe date is ${minGoalDateForPicker.toLocaleDateString('en-AU')}.`);
-          setSaving(false);
-          return;
-        }
+      if (isoDayNumber(goalDate) < isoDayNumber(minGoalDateIso)) {
+        setErr(`Pick a later target date. Earliest safe date is ${toDisplayDate(minGoalDateIso)}.`);
+        setSaving(false);
+        return;
       }
 
       const inferredContinuousMin = level === 'Regular' ? 25 : level === 'Returning' ? 12 : 5;
@@ -171,7 +212,11 @@ export default function OnboardingScreen({
         continuous_run_min: inferredContinuousMin,
         run_walk_ok: level === 'Regular' ? 'No' : 'Yes',
       });
-      await generatePlan(userId, 16);
+      try {
+        await generatePlan(userId, 16);
+      } catch {
+        // Do not block onboarding completion if plan generation can be retried later.
+      }
       onDone();
     } catch (e: any) {
       setErr(e?.message || 'Failed to save onboarding');
@@ -181,116 +226,184 @@ export default function OnboardingScreen({
   };
 
   return (
-    <View style={styles.wrap}>
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.wrap}>
       <Text style={styles.title}>Set up your plan</Text>
-      <Text style={styles.sub}>Quick setup, then we generate your full plan.</Text>
+      <Text style={styles.sub}>Step {step} of 4</Text>
 
-      <Text style={styles.label}>What is your primary goal?</Text>
-      <View style={styles.row}>
-        {GOAL_MODES.map((v) => (
-          <Pick
-            key={v}
-            text={v}
-            selected={goalMode === v}
-            onPress={() => setGoalMode(v as 'Prepare for an event' | 'Build up to run a distance continuously')}
-          />
+      <View style={styles.stepBarWrap}>
+        {[1, 2, 3, 4].map((n) => (
+          <View key={n} style={[styles.stepBar, step >= n ? styles.stepBarOn : null]} />
         ))}
       </View>
 
-      <Text style={styles.label}>
-        {goalMode === 'Prepare for an event' ? 'Event distance' : 'Continuous run distance target'}
-      </Text>
-      <View style={styles.row}>
-        {GOALS.map((v) => (
-          <Pick key={v} text={v} selected={goal === v} onPress={() => setGoal(v)} />
-        ))}
-      </View>
+      {step === 1 ? (
+        <View style={styles.stepCard}>
+          <Text style={styles.label}>What is your primary goal?</Text>
+          <View style={styles.row}>
+            {GOAL_MODES.map((v) => (
+              <Pick key={v} text={v} selected={goalMode === v} onPress={() => setGoalMode(v)} />
+            ))}
+          </View>
 
-      <Text style={styles.label}>
-        {goalMode === 'Prepare for an event'
-          ? 'Event date (YYYY-MM-DD)'
-          : 'Date you want to run the full distance by'}
-      </Text>
-      <Pressable style={styles.inputBtn} onPress={() => openDatePicker('goal')}>
-        <Text style={styles.inputBtnText}>{toDisplayDate(goalDate)}</Text>
-      </Pressable>
+          <Text style={styles.label}>{goalMode === 'Prepare for an event' ? 'Event distance' : 'Distance target'}</Text>
+          <View style={styles.row}>
+            {GOALS.map((v) => (
+              <Pick key={v} text={v} selected={goal === v} onPress={() => setGoal(v)} />
+            ))}
+          </View>
+        </View>
+      ) : null}
 
-      <Text style={styles.label}>Desired start date</Text>
-      <View style={styles.row}>
-        <Pressable style={styles.inputBtnGrow} onPress={() => openDatePicker('start')}>
-          <Text style={styles.inputBtnText}>{toDisplayDate(startDate)}</Text>
-        </Pressable>
-      </View>
+      {step === 2 ? (
+        <View style={styles.stepCard}>
+          <Text style={styles.label}>Desired start date</Text>
+          <Pressable style={styles.dateRow} onPress={() => openPicker('start')}>
+            <Text style={styles.dateLabel}>{toDisplayDate(startDate)}</Text>
+            <Text style={styles.dateAction}>{pickerField === 'start' ? 'Close' : 'Change'}</Text>
+          </Pressable>
+          {pickerField === 'start' && Platform.OS === 'android' ? (
+            <View style={styles.inlinePicker}>
+              <DateTimePicker
+                value={parseIsoDate(startDate)}
+                mode="date"
+                display="default"
+                onChange={onStartDateChange}
+              />
+            </View>
+          ) : null}
 
-      <Text style={styles.label}>Current level</Text>
-      <View style={styles.row}>
-        {LEVELS.map((v) => (
-          <Pick key={v} text={v} selected={level === v} onPress={() => setLevel(v)} />
-        ))}
-      </View>
+          <Text style={styles.label}>
+            {goalMode === 'Prepare for an event' ? 'Event date' : 'Date to run full distance by'}
+          </Text>
+          <Pressable style={styles.dateRow} onPress={() => openPicker('goal')}>
+            <Text style={styles.dateLabel}>{toDisplayDate(goalDate)}</Text>
+            <Text style={styles.dateAction}>{pickerField === 'goal' ? 'Close' : 'Change'}</Text>
+          </Pressable>
+          {pickerField === 'goal' && Platform.OS === 'android' ? (
+            <View style={styles.inlinePicker}>
+              <DateTimePicker
+                value={parseIsoDate(goalDate)}
+                mode="date"
+                display="default"
+                onChange={onGoalDateChange}
+                minimumDate={parseIsoDate(minGoalDateIso)}
+              />
+            </View>
+          ) : null}
 
-      <Text style={styles.label}>Recent running (last 4 weeks)</Text>
-      <View style={styles.row}>
-        {RECENT_RUN_OPTIONS.map((opt) => (
-          <Pick
-            key={opt.label}
-            text={opt.label}
-            selected={recentRunsPerWeek === opt.value}
-            onPress={() => setRecentRunsPerWeek(opt.value)}
-          />
-        ))}
-      </View>
+          <Text style={styles.helper}>
+            Earliest safe date for {goal}: {toDisplayDate(minGoalDateIso)}
+          </Text>
+          <Text style={styles.helper}>
+            Recommended date: {toDisplayDate(recommendedGoalDateIso)}
+          </Text>
+        </View>
+      ) : null}
 
-      <Text style={styles.label}>Run days per week</Text>
-      <View style={styles.row}>
-        {DAYS.map((v) => (
-          <Pick key={String(v)} text={String(v)} selected={days === v} onPress={() => setDays(v)} />
-        ))}
-      </View>
+      {step === 3 ? (
+        <View style={styles.stepCard}>
+          <Text style={styles.label}>Current level</Text>
+          <View style={styles.row}>
+            {LEVELS.map((v) => (
+              <Pick key={v} text={v} selected={level === v} onPress={() => setLevel(v)} />
+            ))}
+          </View>
 
-      <Text style={styles.label}>Time per run</Text>
-      <View style={styles.row}>
-        {TIME_OPTIONS.map((v) => (
-          <Pick key={v} text={v} selected={timePerRun === v} onPress={() => setTimePerRun(v)} />
-        ))}
-      </View>
+          <Text style={styles.label}>Recent running (last 4 weeks)</Text>
+          <View style={styles.row}>
+            {RECENT_RUN_OPTIONS.map((opt) => (
+              <Pick
+                key={opt.label}
+                text={opt.label}
+                selected={recentRunsPerWeek === opt.value}
+                onPress={() => setRecentRunsPerWeek(opt.value)}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
 
-      {err ? <Text style={styles.err}>{err}</Text> : null}
+      {step === 4 ? (
+        <View style={styles.stepCard}>
+          <Text style={styles.label}>Run days per week</Text>
+          <View style={styles.row}>
+            {DAYS.map((v) => (
+              <Pick
+                key={String(v)}
+                text={v === 7 ? 'All days' : String(v)}
+                selected={days === v}
+                onPress={() => setDays(v)}
+              />
+            ))}
+          </View>
+
+          <Text style={styles.label}>Time per run</Text>
+          <View style={styles.row}>
+            {TIME_OPTIONS.map((v) => (
+              <Pick key={v} text={v} selected={timePerRun === v} onPress={() => setTimePerRun(v)} />
+            ))}
+          </View>
+
+          <View style={styles.summaryBox}>
+            <Text style={styles.summaryTitle}>Plan Summary</Text>
+            <Text style={styles.summaryText}>
+              {goal} target by {toDisplayDate(goalDate)}
+            </Text>
+            <Text style={styles.summaryText}>
+              {days} days/week • {timePerRun}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
       {goalTimingMessage ? (
         <Text style={goalTimingMessage.startsWith('Too soon') ? styles.err : styles.warn}>{goalTimingMessage}</Text>
       ) : null}
+      {err ? <Text style={styles.err}>{err}</Text> : null}
 
-      <Pressable style={styles.cta} onPress={submit} disabled={saving}>
-        <Text style={styles.ctaText}>{saving ? 'Saving...' : 'Create My Plan'}</Text>
-      </Pressable>
-
-      {pickerField ? (
-        <Modal visible transparent animationType="fade" onRequestClose={closeDatePicker}>
-          <Pressable style={styles.modalBackdrop} onPress={closeDatePicker}>
-            <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.modalTitle}>{pickerField === 'goal' ? 'Pick target date' : 'Pick start date'}</Text>
-              <DateTimePicker
-                value={pickerDate}
-                mode="date"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={onDatePickerChange}
-                minimumDate={pickerField === 'goal' ? minGoalDateForPicker : undefined}
-              />
-              {Platform.OS === 'ios' ? (
-                <View style={styles.modalActions}>
-                  <Pressable style={styles.modalBtnSecondary} onPress={closeDatePicker}>
-                    <Text style={styles.modalBtnSecondaryText}>Cancel</Text>
-                  </Pressable>
-                  <Pressable style={styles.modalBtnPrimary} onPress={confirmDatePicker}>
-                    <Text style={styles.modalBtnPrimaryText}>Done</Text>
-                  </Pressable>
-                </View>
-              ) : null}
-            </Pressable>
+      <View style={styles.actions}>
+        {step > 1 ? (
+          <Pressable style={styles.backBtn} onPress={() => setStep((s) => (s - 1) as Step)} disabled={saving}>
+            <Text style={styles.backBtnText}>Back</Text>
           </Pressable>
+        ) : (
+          <View style={styles.backPlaceholder} />
+        )}
+
+        {step < 4 ? (
+          <Pressable style={[styles.cta, !canNextStep() && styles.ctaDisabled]} onPress={() => setStep((s) => (s + 1) as Step)} disabled={!canNextStep()}>
+            <Text style={styles.ctaText}>Next</Text>
+          </Pressable>
+        ) : (
+          <Pressable style={[styles.cta, saving && styles.ctaDisabled]} onPress={submit} disabled={saving}>
+            <Text style={styles.ctaText}>{saving ? 'Saving...' : 'Create My Plan'}</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {Platform.OS === 'ios' && pickerField ? (
+        <Modal transparent animationType="slide" visible onRequestClose={() => setPickerField(null)}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setPickerField(null)} />
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              {pickerField === 'start' ? 'Desired start date' : 'Date to run full distance by'}
+            </Text>
+            <DateTimePicker
+              value={parseIsoDate(pickerField === 'start' ? startDate : goalDate)}
+              mode="date"
+              display="spinner"
+              onChange={pickerField === 'start' ? onStartDateChange : onGoalDateChange}
+              minimumDate={pickerField === 'goal' ? parseIsoDate(minGoalDateIso) : undefined}
+              style={styles.iosPicker}
+            />
+            <Pressable style={styles.cta} onPress={() => setPickerField(null)}>
+              <Text style={styles.ctaText}>Done</Text>
+            </Pressable>
+          </View>
         </Modal>
       ) : null}
-    </View>
+
+    </ScrollView>
   );
 }
 
@@ -311,63 +424,108 @@ function Pick({
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: 10, padding: 16 },
-  title: { fontSize: 24, fontWeight: '700', color: '#1e2c1e' },
-  sub: { color: '#5a6f54', marginBottom: 6 },
-  label: { marginTop: 8, fontWeight: '700', color: '#223422' },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  inputBtn: {
+  scroll: { flex: 1 },
+  wrap: { gap: 10, padding: 16, paddingBottom: 28 },
+  title: { fontSize: 24, fontWeight: '700', color: theme.colors.text },
+  sub: { color: theme.colors.textMuted, marginBottom: 6, fontWeight: '600' },
+  stepBarWrap: { flexDirection: 'row', gap: 6, marginBottom: 4 },
+  stepBar: { flex: 1, height: 6, borderRadius: 999, backgroundColor: theme.colors.border },
+  stepBarOn: { backgroundColor: theme.colors.accent },
+  stepCard: {
     borderWidth: 1,
-    borderColor: '#bfd4b2',
-    backgroundColor: '#fff',
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 12,
+    padding: 12,
+    gap: 8,
+  },
+  label: { marginTop: 4, fontWeight: '700', color: theme.colors.text },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  dateRow: {
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surfaceAlt,
     borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  inputBtnGrow: {
+  dateLabel: { color: theme.colors.text, fontWeight: '600', flex: 1, paddingRight: 8 },
+  dateAction: { color: theme.colors.accent, fontWeight: '700' },
+  inlinePicker: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 10,
+    backgroundColor: theme.colors.surface,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    minHeight: Platform.OS === 'android' ? 48 : undefined,
+  },
+  helper: { color: theme.colors.textMuted, fontSize: 12 },
+  summaryBox: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 10,
+    padding: 10,
+    backgroundColor: theme.colors.surfaceAlt,
+    gap: 4,
+  },
+  summaryTitle: { color: theme.colors.text, fontWeight: '800', fontSize: 12 },
+  summaryText: { color: theme.colors.textMuted, fontWeight: '600' },
+  actions: { marginTop: 10, flexDirection: 'row', gap: 8 },
+  backPlaceholder: { flex: 1 },
+  backBtn: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#bfd4b2',
-    backgroundColor: '#fff',
+    borderColor: theme.colors.border,
     borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: theme.colors.surfaceAlt,
   },
-  inputBtnText: { color: '#223422', fontWeight: '600' },
-  pickerWrap: {
+  backBtnText: { color: theme.colors.text, fontWeight: '700' },
+  cta: { flex: 1, backgroundColor: theme.colors.accent, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  ctaDisabled: { opacity: 0.55 },
+  ctaText: { color: theme.colors.accentText, fontWeight: '700' },
+  pill: {
     borderWidth: 1,
-    borderColor: '#dcead0',
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    padding: 6,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
+  pillOn: { backgroundColor: theme.colors.accentSoft, borderColor: theme.colors.accent },
+  pillText: { color: theme.colors.text, fontWeight: '600' },
+  pillTextOn: { color: theme.colors.accent, fontWeight: '700' },
+  err: { color: theme.colors.danger },
+  warn: { color: '#8a5a00' },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.30)',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.28)',
   },
   modalCard: {
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 14,
+    backgroundColor: theme.colors.surface,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
     borderWidth: 1,
-    borderColor: '#dae6ce',
+    borderColor: theme.colors.border,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 24,
+    gap: 8,
   },
-  modalTitle: { fontWeight: '700', color: '#223422', marginBottom: 8 },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 8 },
-  modalBtnSecondary: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: '#edf4e7' },
-  modalBtnSecondaryText: { color: '#31512a', fontWeight: '700' },
-  modalBtnPrimary: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: '#6b8f41' },
-  modalBtnPrimaryText: { color: '#fff', fontWeight: '700' },
-  clearBtn: { paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#edf4e7', justifyContent: 'center' },
-  clearBtnText: { color: '#31512a', fontWeight: '700' },
-  pill: { borderWidth: 1, borderColor: '#bfd4b2', backgroundColor: '#fff', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
-  pillOn: { backgroundColor: '#6b8f41', borderColor: '#6b8f41' },
-  pillText: { color: '#2c4022', fontWeight: '600' },
-  pillTextOn: { color: '#fff' },
-  cta: { marginTop: 14, backgroundColor: '#6b8f41', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
-  ctaText: { color: '#fff', fontWeight: '700' },
-  err: { color: '#a32626' },
-  warn: { color: '#8a5a00' },
+  modalTitle: {
+    color: theme.colors.text,
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  iosPicker: {
+    alignSelf: 'stretch',
+    height: 216,
+  },
 });

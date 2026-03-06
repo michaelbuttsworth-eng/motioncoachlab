@@ -400,7 +400,7 @@ def generate_plan(
         weekly_availability = int(profile.weekly_availability or 3)
     except Exception:
         weekly_availability = 3
-    weekly_availability = max(1, min(6, weekly_availability))
+    weekly_availability = max(1, min(7, weekly_availability))
 
     today = date.today()
     start_anchor = profile.start_date if profile.start_date and profile.start_date > today else today
@@ -427,7 +427,7 @@ def generate_plan(
                 ),
             )
 
-    runs_per_week = max(2, weekly_availability)
+    runs_per_week = max(1, weekly_availability)
     if beginner_path:
         runs_per_week = min(runs_per_week, 3)
     if injury_mode == "ongoing":
@@ -494,13 +494,25 @@ def generate_plan(
                 week_target = max(4, int(round(week_target * (available_count / float(desired_runs)))))
         run_days = sorted(run_days)
         if w == 0 and profile.start_date:
-            start_wd = profile.start_date.weekday()
-            if availability is None or getattr(availability, DAY_KEYS[start_wd]):
-                if start_wd not in run_days:
-                    run_days = [start_wd] + run_days
-                    run_days = sorted(run_days)[:desired_runs]
-        if w == 0 and profile.start_date and profile.start_date > week_start:
-            run_days = [d for d in run_days if (week_start + timedelta(days=d)) >= profile.start_date]
+            start_idx = (profile.start_date - week_start).days
+            if 0 <= start_idx <= 6:
+                # Never schedule days before selected start date in week 1.
+                run_days = [d for d in run_days if d >= start_idx]
+                if availability is None or getattr(availability, DAY_KEYS[start_idx]):
+                    if start_idx not in run_days:
+                        run_days.append(start_idx)
+                run_days = sorted(set(run_days))
+                if len(run_days) > desired_runs:
+                    # Keep selected start day; then prefer the next days in the same week.
+                    others = [d for d in run_days if d != start_idx]
+                    after = [d for d in others if d > start_idx]
+                    before = [d for d in others if d < start_idx]
+                    kept = [start_idx]
+                    for d in after + before:
+                        if len(kept) >= desired_runs:
+                            break
+                        kept.append(d)
+                    run_days = sorted(kept)
         pace_min_per_km = _easy_pace_min_per_km(ability_level)
         time_cap_min = _parse_time_cap_minutes(time_per_run)
         per_run_cap_km = max(2, int(time_cap_min / max(4.5, pace_min_per_km)))
