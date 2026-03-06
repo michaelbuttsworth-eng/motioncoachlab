@@ -79,7 +79,7 @@ export default function PlanTodayScreen({ userId }: { userId: number }) {
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.wrap}>
       <View style={styles.hero}>
-        <Text style={styles.eyebrow}>Home</Text>
+        <Text style={styles.eyebrow}>Plan</Text>
         <Text style={styles.heroTitle}>Today&apos;s Plan</Text>
         <Text style={styles.heroText}>Stay consistent. One session at a time.</Text>
       </View>
@@ -90,7 +90,7 @@ export default function PlanTodayScreen({ userId }: { userId: number }) {
         <>
           <View style={styles.card}>
             <Text style={styles.h1}>Today: {data.session_type}</Text>
-            <Text style={styles.p}>Planned distance: {data.planned_km} km</Text>
+            {!isC25KSession(data) ? <Text style={styles.p}>Planned distance: {data.planned_km} km</Text> : null}
             {data.interval ? (
               <>
                 <Text style={styles.p}>
@@ -129,7 +129,9 @@ export default function PlanTodayScreen({ userId }: { userId: number }) {
                       <Text style={styles.upcomingType}>{w.session_type}</Text>
                     </View>
                     <Text style={styles.upcomingMeta}>
-                      {w.planned_km} km{w.total_motion_min ? ` • ${w.total_motion_min} min motion` : ''}
+                      {isC25KSession(w)
+                        ? `${w.total_motion_min ? `${w.total_motion_min} min motion` : 'Guided run/walk'}`
+                        : `${w.planned_km} km${w.total_motion_min ? ` • ${w.total_motion_min} min motion` : ''}`}
                     </Text>
                     {expanded ? (
                       <View style={styles.detailBox}>
@@ -171,6 +173,15 @@ function workoutSummary(w: MobileUpcomingWorkout | MobilePlanToday): string {
   const cooldown = Number(interval.cooldown || 5);
   const motion = Math.round(warmup + cooldown + (run + walk) * repeats);
   return `${warmup} min warm-up • ${repeats} x (${run} min run / ${walk} min walk) • ${cooldown} min cool-down • ${motion} min motion`;
+}
+
+function isC25KSession(w: MobileUpcomingWorkout | MobilePlanToday): boolean {
+  const sessionType = String(w.session_type || '').toLowerCase();
+  if (sessionType.includes('c25k')) return true;
+  const notes = String(w.notes || '');
+  if (notes.startsWith('C25K|')) return true;
+  if (w.interval && w.interval.run && w.interval.walk) return true;
+  return false;
 }
 
 const styles = StyleSheet.create({

@@ -306,6 +306,37 @@ def _available_days_for_week(
     return preferred_allowed or allowed_all
 
 
+def _pick_spread_days(allowed_days: list[int], desired_runs: int) -> list[int]:
+    """
+    Pick run days spread across the week (avoid back-to-back when possible).
+    """
+    days = sorted(set(allowed_days))
+    if desired_runs <= 0 or not days:
+        return []
+    if desired_runs >= len(days):
+        return days
+
+    chosen: list[int] = [days[0]]
+    while len(chosen) < desired_runs:
+        best_day = None
+        best_score = None
+        for d in days:
+            if d in chosen:
+                continue
+            distances = [abs(d - c) for c in chosen]
+            min_gap = min(distances) if distances else 7
+            edge_bonus = min(d, 6 - d) * 0.01
+            score = min_gap + edge_bonus
+            if best_score is None or score > best_score:
+                best_score = score
+                best_day = d
+        if best_day is None:
+            break
+        chosen.append(best_day)
+
+    return sorted(chosen[:desired_runs])
+
+
 def _build_sessions(
     run_days: list[int],
     week_target: int,
@@ -475,15 +506,16 @@ def generate_plan(
         desired_runs = runs_per_week
         run_days = _available_days_for_week(preferred, availability)
         if availability is None:
-            run_days = run_days[:desired_runs]
+            run_days = _pick_spread_days(run_days, desired_runs)
             if len(run_days) < desired_runs:
                 for d in range(7):
                     if d not in run_days:
                         run_days.append(d)
                     if len(run_days) == desired_runs:
                         break
+                run_days = _pick_spread_days(run_days, desired_runs)
         else:
-            run_days = run_days[:desired_runs]
+            run_days = _pick_spread_days(run_days, desired_runs)
             available_count = len(run_days)
             if available_count == 0:
                 week_target = 0
@@ -493,12 +525,15 @@ def generate_plan(
         if w == 0 and profile.start_date:
             start_idx = (profile.start_date - week_start).days
             if 0 <= start_idx <= 6:
+                if beginner_path and start_idx >= 4:
+                    # Conservative first weekend start for C25K: only one run in the partial week.
+                    desired_runs = 1
                 # Never schedule days before selected start date in week 1.
                 run_days = [d for d in run_days if d >= start_idx]
                 if availability is None or getattr(availability, DAY_KEYS[start_idx]):
                     if start_idx not in run_days:
                         run_days.append(start_idx)
-                run_days = sorted(set(run_days))
+                run_days = _pick_spread_days(run_days, desired_runs)
                 if len(run_days) > desired_runs:
                     # Keep selected start day; then prefer the next days in the same week.
                     others = [d for d in run_days if d != start_idx]

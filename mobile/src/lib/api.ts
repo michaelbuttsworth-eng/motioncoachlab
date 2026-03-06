@@ -38,6 +38,8 @@ export type OnboardingOut = {
   id: number;
   user_id: number;
   current_step?: number | null;
+  start_date?: string | null;
+  goal_date?: string | null;
   goal_primary?: string | null;
   ability_level?: string | null;
   weekly_availability?: number | null;
@@ -99,6 +101,20 @@ export type MobilePlanToday = {
   interval?: Record<string, string | number> | null;
 };
 
+export type MobileUpcomingWorkout = {
+  day: string;
+  session_type: string;
+  planned_km: number;
+  notes?: string | null;
+  interval?: Record<string, string | number> | null;
+  total_motion_min?: number | null;
+};
+
+export type MobilePlanUpcoming = {
+  user_id: number;
+  items: MobileUpcomingWorkout[];
+};
+
 export type MobileProgress = {
   user_id: number;
   week_start: string;
@@ -133,8 +149,26 @@ export type MobileHistory = {
 
 export type SessionStart = { id: number; user_id: number; started_at: string; status: string; run_id?: number | null };
 
-export function getPlanToday(userId: number) {
-  return req<MobilePlanToday>(`/mobile/plan/today/${userId}`);
+function localIsoDate(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function getPlanToday(userId: number, clientDate?: string) {
+  const date = clientDate || localIsoDate();
+  return req<MobilePlanToday>(`/mobile/plan/today/${userId}?client_date=${date}`);
+}
+
+export function getPlanUpcoming(userId: number, limit = 5, includeRest = false) {
+  const capped = Math.max(1, limit);
+  return req<MobilePlanUpcoming>(
+    `/mobile/plan/upcoming/${userId}?limit=${capped}&include_rest=${includeRest ? 'true' : 'false'}&client_date=${localIsoDate()}`
+  ).catch(async (e) => {
+    const msg = String((e as Error)?.message || '');
+    if (!msg.includes('404')) throw e;
+    const fallback = await getPlanUpcomingFallback(userId, capped, includeRest);
+    return fallback;
+  });
 }
 
 export function generatePlan(userId: number, weeks = 16) {
@@ -167,6 +201,83 @@ export function sessionEvent(sessionId: number, event_type: string, payload_json
     method: 'POST',
     body: JSON.stringify({ event_type, payload_json }),
   });
+}
+
+type LegacyPlanDay = {
+  day: string;
+  session_type: string;
+  planned_km: number;
+  notes?: string | null;
+};
+
+type LegacyPlanWeek = {
+  week_start: string;
+  focus: string;
+  target_km: number;
+  days: LegacyPlanDay[];
+};
+
+function weekStartIso(baseIso: string, addWeeks = 0): string {
+  const d = new Date(`${baseIso}T00:00:00`);
+  const wd = d.getDay(); // Sun=0..Sat=6
+  const monOffset = wd === 0 ? -6 : 1 - wd;
+  d.setDate(d.getDate() + monOffset + addWeeks * 7);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function parseC25kFromNotes(notes?: string | null): Record<string, string | number> | null {
+  const text = String(notes || '');
+  if (!text.startsWith('C25K|')) return null;
+  const out: Record<string, string | number> = {};
+  for (const part of text.split('|').slice(1)) {
+    const [k, v] = part.split('=');
+    if (!k || v == null) continue;
+    const n = Number(v);
+    out[k] = Number.isFinite(n) ? n : v;
+  }
+  return out;
+}
+
+async function getPlanUpcomingFallback(
+  userId: number,
+  limit: number,
+  includeRest: boolean
+): Promise<MobilePlanUpcoming> {
+  const today = localIsoDate();
+  const weeks = [weekStartIso(today, 0), weekStartIso(today, 1), weekStartIso(today, 2)];
+  const items: MobileUpcomingWorkout[] = [];
+  for (const w of weeks) {
+    try {
+      const week = await req<LegacyPlanWeek>(`/plans/week/${userId}?week_start=${w}`);
+      for (const d of week.days || []) {
+        const interval = parseC25kFromNotes(d.notes);
+        const isRest = String(d.session_type || '').toLowerCase() === 'rest';
+        if (!includeRest && isRest) continue;
+        if (String(d.day) < today) continue;
+        let total_motion_min: number | null = null;
+        if (interval) {
+          const warmup = Number(interval.warmup || 0);
+          const cooldown = Number(interval.cooldown || 0);
+          const run = Number(interval.run || 0);
+          const walk = Number(interval.walk || 0);
+          const repeats = Number(interval.repeats || 0);
+          total_motion_min = Math.round(warmup + cooldown + (run + walk) * repeats);
+        }
+        items.push({
+          day: String(d.day),
+          session_type: d.session_type,
+          planned_km: Number(d.planned_km || 0),
+          notes: d.notes || null,
+          interval,
+          total_motion_min,
+        });
+      }
+    } catch {
+      // Keep building from other weeks if one week is unavailable.
+    }
+  }
+  items.sort((a, b) => String(a.day).localeCompare(String(b.day)));
+  return { user_id: userId, items: items.slice(0, limit) };
 }
 
 export function stopSession(sessionId: number, distance_m: number, duration_s: number, route_polyline?: string) {
