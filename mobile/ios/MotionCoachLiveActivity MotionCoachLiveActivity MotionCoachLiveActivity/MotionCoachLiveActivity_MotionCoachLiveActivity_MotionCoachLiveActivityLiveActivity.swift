@@ -1,80 +1,117 @@
-//
-//  MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityLiveActivity.swift
-//  MotionCoachLiveActivity MotionCoachLiveActivity MotionCoachLiveActivity
-//
-//  Created by Michael Buttsworth on 6/3/2026.
-//
-
 import ActivityKit
 import WidgetKit
 import SwiftUI
 
-struct MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityAttributes: ActivityAttributes {
-    public struct ContentState: Codable, Hashable {
-        // Dynamic stateful properties about your activity go here!
-        var emoji: String
-    }
-
-    // Fixed non-changing properties about your activity go here!
-    var name: String
-}
-
-struct MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityLiveActivity: Widget {
-    var body: some WidgetConfiguration {
-        ActivityConfiguration(for: MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityAttributes.self) { context in
-            // Lock screen/banner UI goes here
-            VStack {
-                Text("Hello \(context.state.emoji)")
-            }
-            .activityBackgroundTint(Color.cyan)
-            .activitySystemActionForegroundColor(Color.black)
-
-        } dynamicIsland: { context in
-            DynamicIsland {
-                // Expanded UI goes here.  Compose the expanded UI through
-                // various regions, like leading/trailing/center/bottom
-                DynamicIslandExpandedRegion(.leading) {
-                    Text("Leading")
-                }
-                DynamicIslandExpandedRegion(.trailing) {
-                    Text("Trailing")
-                }
-                DynamicIslandExpandedRegion(.bottom) {
-                    Text("Bottom \(context.state.emoji)")
-                    // more content
-                }
-            } compactLeading: {
-                Text("L")
-            } compactTrailing: {
-                Text("T \(context.state.emoji)")
-            } minimal: {
-                Text(context.state.emoji)
-            }
-            .widgetURL(URL(string: "http://www.apple.com"))
-            .keylineTint(Color.red)
+struct MotionCoachLiveActivityWidget: Widget {
+  var body: some WidgetConfiguration {
+    ActivityConfiguration(for: MotionCoachLiveActivityAttributes.self) { context in
+      VStack(alignment: .leading, spacing: 8) {
+        HStack {
+          Text(context.state.phaseLabel)
+            .font(.headline)
+          Spacer()
+          Text(timerDate(fromEpoch: context.state.segmentEndsAtEpoch), style: .timer)
+            .font(.subheadline.monospacedDigit())
         }
+
+        ProgressView(value: min(1, max(0, context.state.progress)))
+          .tint(context.state.isPaused ? .orange : .green)
+
+        HStack {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Total elapsed")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+            Text(timerDate(fromEpoch: context.state.sessionStartedAtEpoch), style: .timer)
+              .font(.subheadline.monospacedDigit())
+          }
+          Spacer()
+          VStack(alignment: .trailing, spacing: 2) {
+            Text("Distance")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+            Text(formatDistance(context.state.distanceM))
+              .font(.subheadline.monospacedDigit())
+          }
+        }
+
+        HStack(spacing: 24) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Pace")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+            Text(formatPace(context.state.paceMinPerKm))
+              .font(.subheadline.monospacedDigit())
+          }
+        }
+      }
+      .padding(12)
+      .activityBackgroundTint(Color.black.opacity(0.85))
+      .activitySystemActionForegroundColor(.white)
+    } dynamicIsland: { context in
+      DynamicIsland {
+        DynamicIslandExpandedRegion(.leading) {
+          Text(timerDate(fromEpoch: context.state.sessionStartedAtEpoch), style: .timer)
+            .font(.caption2.monospacedDigit())
+        }
+        DynamicIslandExpandedRegion(.trailing) {
+          Text(timerDate(fromEpoch: context.state.segmentEndsAtEpoch), style: .timer)
+            .font(.caption2.monospacedDigit())
+        }
+        DynamicIslandExpandedRegion(.bottom) {
+          HStack {
+            Text(context.state.phaseLabel)
+            Spacer()
+            Text(formatPace(context.state.paceMinPerKm))
+          }
+          .font(.caption)
+        }
+      } compactLeading: {
+        Text(shortPhase(context.state.phase, paused: context.state.isPaused))
+          .font(.caption2)
+      } compactTrailing: {
+        Text(formatElapsedCompact(context.state.elapsedSec))
+          .font(.caption2.monospacedDigit())
+      } minimal: {
+        Text("🏃")
+      }
+      .keylineTint(.green)
     }
+  }
 }
 
-extension MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityAttributes {
-    fileprivate static var preview: MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityAttributes {
-        MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityAttributes(name: "World")
-    }
+private func formatElapsed(_ sec: Int) -> String {
+  let m = max(0, sec) / 60
+  let s = max(0, sec) % 60
+  return String(format: "%d:%02d", m, s)
 }
 
-extension MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityAttributes.ContentState {
-    fileprivate static var smiley: MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityAttributes.ContentState {
-        MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityAttributes.ContentState(emoji: "😀")
-     }
-     
-     fileprivate static var starEyes: MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityAttributes.ContentState {
-         MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityAttributes.ContentState(emoji: "🤩")
-     }
+private func timerDate(fromEpoch value: Double) -> Date {
+  Date(timeIntervalSince1970: value)
 }
 
-#Preview("Notification", as: .content, using: MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityAttributes.preview) {
-   MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityLiveActivity()
-} contentStates: {
-    MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityAttributes.ContentState.smiley
-    MotionCoachLiveActivity_MotionCoachLiveActivity_MotionCoachLiveActivityAttributes.ContentState.starEyes
+
+private func formatElapsedCompact(_ sec: Int) -> String {
+  let m = max(0, sec) / 60
+  return "\(m)m"
+}
+
+private func formatDistance(_ meters: Double) -> String {
+  if meters < 1000 { return "\(Int(meters.rounded())) m" }
+  return String(format: "%.2f km", meters / 1000)
+}
+
+private func formatPace(_ pace: Double) -> String {
+  if pace <= 0 || !pace.isFinite { return "-" }
+  return String(format: "%.2f min/km", pace)
+}
+
+private func shortPhase(_ phase: String, paused: Bool) -> String {
+  if paused { return "PAUSE" }
+  let p = phase.lowercased()
+  if p.contains("run") { return "RUN" }
+  if p.contains("walk") { return "WALK" }
+  if p.contains("warm") { return "WARM" }
+  if p.contains("cool") { return "COOL" }
+  return "RUN"
 }

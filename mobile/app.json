@@ -2,7 +2,7 @@
   "expo": {
     "name": "MotionCoachLab",
     "slug": "motioncoachlab-mobile",
-    "version": "0.1.0",
+    "version": "0.1.2",
     "orientation": "portrait",
     "icon": "./assets/brand-assets/icon/icon-1024.png",
     "splash": {
@@ -21,10 +21,14 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocationWhenInUseUsageDescription": "MotionCoachLab uses location during your run to track distance and pace.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "MotionCoachLab can track your run while the app is in background.",
+        "NSSupportsLiveActivities": true,
+        "NSSupportsLiveActivitiesFrequentUpdates": true,
         "UIBackgroundModes": [
+          "audio",
           "location"
         ]
-      }
+      },
+      "buildNumber": "3"
     },
     "android": {
       "package": "com.motioncoachlab.app",
@@ -62,6 +66,7 @@
           "sounds": [
             "./assets/audio/cues/warmup_intro.wav",
             "./assets/audio/cues/warmup.wav",
+            "./assets/audio/cues/prerun.wav",
             "./assets/audio/cues/run.wav",
             "./assets/audio/cues/walk.wav",
             "./assets/audio/cues/cooldown.wav",
