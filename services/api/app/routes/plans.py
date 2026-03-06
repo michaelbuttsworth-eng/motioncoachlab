@@ -579,7 +579,8 @@ def generate_plan(
 
         if w == 0 and profile.start_date:
             start_idx = (profile.start_date - week_start).days
-            if 0 <= start_idx <= 6 and run_day_map and start_idx not in run_day_map:
+            start_day_allowed = availability is None or bool(getattr(availability, DAY_KEYS[start_idx]))
+            if 0 <= start_idx <= 6 and run_day_map and start_idx not in run_day_map and start_day_allowed:
                 # Ensure selected start day is an active run in week 1.
                 donor_idx = sorted(run_day_map.keys())[-1]
                 run_day_map[start_idx] = run_day_map.pop(donor_idx)

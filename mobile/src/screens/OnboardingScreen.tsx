@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { generatePlan, setWeeklyAvailability, upsertOnboarding, upsertProfile } from '../lib/api';
@@ -88,19 +88,31 @@ export default function OnboardingScreen({
       next.getUTCDate()
     ).padStart(2, '0')}`;
   };
-
+  const weekStartForIso = (iso: string): string => {
+    const d = parseIsoDate(iso);
+    const mondayIdx = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - mondayIdx);
+    return toIsoDate(d);
+  };
+  const weekdayIdxForIso = (iso: string): number => {
+    const d = parseIsoDate(iso);
+    return (d.getDay() + 6) % 7;
+  };
   const toDisplayDate = (value: string): string => {
     if (!value) return 'Select date';
     const d = parseIsoDate(value);
     return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   };
 
-  const weekStartIso = useMemo(() => {
+  const currentWeekStartIso = useMemo(() => {
     const d = new Date();
     const mondayIdx = (d.getDay() + 6) % 7;
     d.setDate(d.getDate() - mondayIdx);
     return toIsoDate(d);
   }, []);
+  const selectedWeekStartIso = useMemo(() => weekStartForIso(startDate), [startDate]);
+  const isSelectedWeekCurrent = selectedWeekStartIso === currentWeekStartIso;
+  const isoForSelectedWeekIdx = (idx: number): string => addDaysIso(selectedWeekStartIso, idx);
 
   const todayWeekdayIdx = useMemo(() => {
     const d = new Date();
@@ -127,6 +139,44 @@ export default function OnboardingScreen({
     () => addDaysIso(startDate, timeline.recommendedWeeks * 7),
     [startDate, timeline.recommendedWeeks]
   );
+
+  const prevStartDateRef = useRef(startDate);
+  const prevSelectedWeekRef = useRef(selectedWeekStartIso);
+  useEffect(() => {
+    const prev = prevStartDateRef.current;
+    if (prev === startDate) return;
+    if (goalDate) {
+      const delta = isoDayNumber(startDate) - isoDayNumber(prev);
+      if (delta !== 0) {
+        setGoalDate((g) => addDaysIso(g || recommendedGoalDateIso, delta));
+      }
+    }
+    prevStartDateRef.current = startDate;
+  }, [startDate, goalDate, recommendedGoalDateIso]);
+
+  useEffect(() => {
+    // Keep start date and selected weekday aligned.
+    const idx = weekdayIdxForIso(startDate);
+    if (isSelectedWeekCurrent && idx < todayWeekdayIdx) return;
+    setCurrentWeekAvailability((prev) => {
+      if (prev[idx]) return prev;
+      const next = [...prev];
+      next[idx] = true;
+      return next;
+    });
+  }, [startDate, isSelectedWeekCurrent, todayWeekdayIdx]);
+
+  useEffect(() => {
+    if (prevSelectedWeekRef.current === selectedWeekStartIso) return;
+    const idx = weekdayIdxForIso(startDate);
+    const next = Array.from({ length: 7 }, (_, i) => i === idx);
+    if (isSelectedWeekCurrent) {
+      for (let i = 0; i < todayWeekdayIdx; i++) next[i] = false;
+      if (!next.some(Boolean)) next[todayWeekdayIdx] = true;
+    }
+    setCurrentWeekAvailability(next);
+    prevSelectedWeekRef.current = selectedWeekStartIso;
+  }, [selectedWeekStartIso, startDate, isSelectedWeekCurrent, todayWeekdayIdx]);
 
   useEffect(() => {
     // Keep default target date realistic for selected distance + fitness baseline.
@@ -302,12 +352,14 @@ export default function OnboardingScreen({
         continuous_run_min: inferredContinuousMin,
         run_walk_ok: level === 'Regular' ? 'No' : 'Yes',
       });
-      const normalizedAvailability = currentWeekAvailability.map((v, i) => (i < todayWeekdayIdx ? false : v));
+      const normalizedAvailability = currentWeekAvailability.map((v, i) =>
+        isSelectedWeekCurrent && i < todayWeekdayIdx ? false : v
+      );
       if (!normalizedAvailability.some((v) => v)) {
-        normalizedAvailability[todayWeekdayIdx] = true;
+        normalizedAvailability[isSelectedWeekCurrent ? todayWeekdayIdx : weekdayIdxForIso(startDate)] = true;
       }
       await setWeeklyAvailability(userId, {
-        week_start: weekStartIso,
+        week_start: selectedWeekStartIso,
         mon: normalizedAvailability[0],
         tue: normalizedAvailability[1],
         wed: normalizedAvailability[2],
@@ -327,6 +379,34 @@ export default function OnboardingScreen({
     } finally {
       setSaving(false);
     }
+  };
+
+  const onToggleCurrentWeekDay = (idx: number) => {
+    if (isSelectedWeekCurrent && idx < todayWeekdayIdx) return;
+    setCurrentWeekAvailability((prev) => {
+      const next = [...prev];
+      const toggledOn = !next[idx];
+      next[idx] = toggledOn;
+
+      if (toggledOn) {
+        // Selecting a day here should move desired start date to the same day.
+        setStartDate(isoForSelectedWeekIdx(idx));
+      } else {
+        const selected = next
+          .map((v, i) => ({ v, i }))
+          .filter((x) => x.v && (!isSelectedWeekCurrent || x.i >= todayWeekdayIdx))
+          .map((x) => x.i)
+          .sort((a, b) => a - b);
+        if (!selected.length) {
+          // Keep one valid day selected.
+          next[idx] = true;
+          setStartDate(isoForSelectedWeekIdx(idx));
+        } else if (weekdayIdxForIso(startDate) === idx && weekStartForIso(startDate) === selectedWeekStartIso) {
+          setStartDate(isoForSelectedWeekIdx(selected[0]));
+        }
+      }
+      return next;
+    });
   };
 
   return (
@@ -449,19 +529,23 @@ export default function OnboardingScreen({
             ))}
           </View>
 
-          <Text style={styles.label}>Days available this week</Text>
-          <Text style={styles.helper}>Only remaining days are selectable.</Text>
+          <Text style={styles.label}>
+            {isSelectedWeekCurrent
+              ? 'Days available this week'
+              : `Days available for week commencing ${toDisplayDate(selectedWeekStartIso)}`}
+          </Text>
+          <Text style={styles.helper}>
+            {isSelectedWeekCurrent ? 'Only remaining days are selectable.' : 'Pick days you can run in that week.'}
+          </Text>
           <View style={styles.weekRow}>
             {WEEKDAY_LABELS.map((day, idx) => {
-              const isPast = idx < todayWeekdayIdx;
+              const isPast = isSelectedWeekCurrent && idx < todayWeekdayIdx;
               const selected = currentWeekAvailability[idx];
               return (
                 <Pressable
                   key={day}
                   disabled={isPast}
-                  onPress={() =>
-                    setCurrentWeekAvailability((prev) => prev.map((v, i) => (i === idx && !isPast ? !v : v)))
-                  }
+                  onPress={() => onToggleCurrentWeekDay(idx)}
                   style={[styles.dayPill, selected && styles.dayPillOn, isPast && styles.dayPillDisabled]}
                 >
                   <Text style={[styles.dayPillText, selected && styles.dayPillTextOn, isPast && styles.dayPillTextDisabled]}>
