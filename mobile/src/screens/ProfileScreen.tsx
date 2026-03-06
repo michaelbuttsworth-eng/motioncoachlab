@@ -2,7 +2,7 @@ import React from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { shadow, theme } from '../ui/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { flushSyncQueue, getPendingSyncCount } from '../lib/api';
+import { flushSyncQueue, generatePlan, getPendingSyncCount, getWeeklyAvailability, setWeeklyAvailability } from '../lib/api';
 
 type Props = {
   userId: number;
@@ -21,6 +21,7 @@ type Props = {
 };
 
 const SUPPORT_EMAIL = 'support@buttsworthlabs.com';
+const WEEK_DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 
 export default function ProfileScreen({
   userId,
@@ -39,7 +40,22 @@ export default function ProfileScreen({
 }: Props) {
   const [diag, setDiag] = React.useState<string[]>([]);
   const [pendingCount, setPendingCount] = React.useState(0);
+  const [nextWeekAvailability, setNextWeekAvailability] = React.useState<boolean[]>([false, true, false, true, false, false, true]);
+  const [savingAvailability, setSavingAvailability] = React.useState(false);
   const DIAG_STORAGE_KEY = 'mcl_session_diag_v1';
+  const nextWeekStartIso = React.useMemo(() => {
+    const now = new Date();
+    const mondayIdx = (now.getDay() + 6) % 7;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - mondayIdx);
+    monday.setHours(12, 0, 0, 0);
+    monday.setDate(monday.getDate() + 7);
+    return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+  }, []);
+  const nextWeekStartLabel = React.useMemo(() => {
+    const d = new Date(`${nextWeekStartIso}T00:00:00`);
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  }, [nextWeekStartIso]);
 
   const refreshSettingsMeta = React.useCallback(async () => {
     try {
@@ -54,7 +70,13 @@ export default function ProfileScreen({
     } catch {
       setPendingCount(0);
     }
-  }, []);
+    try {
+      const a = await getWeeklyAvailability(userId, nextWeekStartIso);
+      setNextWeekAvailability([a.mon, a.tue, a.wed, a.thu, a.fri, a.sat, a.sun]);
+    } catch {
+      // Keep current local suggestion.
+    }
+  }, [nextWeekStartIso, userId]);
 
   React.useEffect(() => {
     refreshSettingsMeta();
@@ -132,6 +154,54 @@ export default function ProfileScreen({
           }}
         >
           <Text style={styles.btnText}>Sync Pending Now {pendingCount ? `(${pendingCount})` : ''}</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.h1}>Next Week Availability</Text>
+        <Text style={styles.meta}>Week commencing {nextWeekStartLabel}. Pick days you can run.</Text>
+        <View style={styles.weekRow}>
+          {WEEK_DAYS.map((d, i) => (
+            <Pressable
+              key={`${d}-${i}`}
+              style={[styles.dayPill, nextWeekAvailability[i] && styles.dayPillOn]}
+              onPress={() => setNextWeekAvailability((prev) => prev.map((v, idx) => (idx === i ? !v : v)))}
+            >
+              <Text style={[styles.dayPillText, nextWeekAvailability[i] && styles.dayPillTextOn]}>{d}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Pressable
+          style={styles.btn}
+          onPress={async () => {
+            const selectedCount = nextWeekAvailability.filter(Boolean).length;
+            if (selectedCount === 0) {
+              Alert.alert('Select at least one day', 'Pick at least one day for next week.');
+              return;
+            }
+            setSavingAvailability(true);
+            try {
+              await setWeeklyAvailability(userId, {
+                week_start: nextWeekStartIso,
+                mon: nextWeekAvailability[0],
+                tue: nextWeekAvailability[1],
+                wed: nextWeekAvailability[2],
+                thu: nextWeekAvailability[3],
+                fri: nextWeekAvailability[4],
+                sat: nextWeekAvailability[5],
+                sun: nextWeekAvailability[6],
+              });
+              await generatePlan(userId, 16);
+              await refreshSettingsMeta();
+              Alert.alert('Saved', 'Next week availability updated and plan regenerated.');
+            } catch (e: any) {
+              Alert.alert('Could not save', e?.message || 'Please try again.');
+            } finally {
+              setSavingAvailability(false);
+            }
+          }}
+        >
+          <Text style={styles.btnText}>{savingAvailability ? 'Saving...' : 'Save Next Week Plan'}</Text>
         </Pressable>
       </View>
 
@@ -233,6 +303,20 @@ const styles = StyleSheet.create({
   settingTextWrap: { flex: 1, gap: 2 },
   settingTitle: { color: theme.colors.text, fontWeight: '700', fontSize: 14 },
   settingSubtitle: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 16 },
+  weekRow: { flexDirection: 'row', gap: 8 },
+  dayPill: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surfaceAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayPillOn: { borderColor: theme.colors.accent, backgroundColor: theme.colors.accentSoft },
+  dayPillText: { color: theme.colors.textMuted, fontWeight: '700' },
+  dayPillTextOn: { color: theme.colors.accent, fontWeight: '800' },
   pillToggle: {
     minWidth: 64,
     borderRadius: theme.radius.pill,

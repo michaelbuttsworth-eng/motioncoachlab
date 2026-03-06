@@ -289,7 +289,8 @@ function TabIcon({ name, active }: { name: 'home' | 'history' | 'run' | 'progres
     case 'home':
       return (
         <Svg width={18} height={18} viewBox="0 0 24 24">
-          <Path d="M4 11L12 4L20 11V20H4V11Z" fill="none" stroke={stroke} strokeWidth={2} />
+          <Rect x="4" y="5" width="16" height="15" rx="2" fill="none" stroke={stroke} strokeWidth={2} />
+          <Path d="M8 3V7M16 3V7M4 10H20" stroke={stroke} strokeWidth={2} strokeLinecap="round" />
         </Svg>
       );
     case 'run':

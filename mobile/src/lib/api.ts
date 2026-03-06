@@ -63,6 +63,22 @@ export type ProfileIn = {
   run_walk_ok?: string;
 };
 
+export type WeeklyAvailabilityIn = {
+  week_start: string;
+  mon: boolean;
+  tue: boolean;
+  wed: boolean;
+  thu: boolean;
+  fri: boolean;
+  sat: boolean;
+  sun: boolean;
+};
+
+export type WeeklyAvailabilityOut = WeeklyAvailabilityIn & {
+  id: number;
+  user_id: number;
+};
+
 export function authGuest(name: string, device_id: string) {
   return req<GuestAuthOut>('/auth/guest', {
     method: 'POST',
@@ -90,6 +106,18 @@ export function upsertProfile(userId: number, payload: ProfileIn) {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+export function setWeeklyAvailability(userId: number, payload: WeeklyAvailabilityIn) {
+  return req<WeeklyAvailabilityOut>(`/users/${userId}/availability`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getWeeklyAvailability(userId: number, weekStart?: string) {
+  const qs = weekStart ? `?week_start=${encodeURIComponent(weekStart)}` : '';
+  return req<WeeklyAvailabilityOut>(`/users/${userId}/availability${qs}`);
 }
 
 export type MobilePlanToday = {

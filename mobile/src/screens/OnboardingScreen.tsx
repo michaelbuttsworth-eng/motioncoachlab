@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import { generatePlan, upsertOnboarding, upsertProfile } from '../lib/api';
+import { generatePlan, setWeeklyAvailability, upsertOnboarding, upsertProfile } from '../lib/api';
 import { theme } from '../ui/theme';
 
 const GOAL_MODES = ['Prepare for an event', 'Build up to run a distance continuously'] as const;
@@ -9,6 +9,7 @@ const GOALS = ['5K', '10K', 'Half', 'Marathon', 'Ultra/Other'] as const;
 const LEVELS = ['New', 'Returning', 'Regular'] as const;
 const TIME_OPTIONS = ['Up to 30 min', 'Up to 45 min', 'Up to 60 min'] as const;
 const DAYS = [1, 2, 3, 4, 5, 6, 7] as const;
+const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 const RECENT_RUN_OPTIONS: Array<{ label: string; value: number }> = [
   { label: '0 / week', value: 0 },
   { label: '1 / week', value: 1 },
@@ -56,7 +57,13 @@ export default function OnboardingScreen({
   const [err, setErr] = useState('');
   const [goalDateTouched, setGoalDateTouched] = useState(false);
   const [pickerField, setPickerField] = useState<PickerField>(null);
-  const [draftDateIso, setDraftDateIso] = useState<string>('');
+  const [draftDate, setDraftDate] = useState<Date>(new Date());
+  const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
+  const [currentWeekAvailability, setCurrentWeekAvailability] = useState<boolean[]>(() => {
+    const d = new Date();
+    const idx = (d.getDay() + 6) % 7;
+    return Array.from({ length: 7 }, (_, i) => i === idx);
+  });
 
   const parseIsoDate = (value: string): Date => {
     if (!value) return new Date();
@@ -87,6 +94,18 @@ export default function OnboardingScreen({
     const d = parseIsoDate(value);
     return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   };
+
+  const weekStartIso = useMemo(() => {
+    const d = new Date();
+    const mondayIdx = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - mondayIdx);
+    return toIsoDate(d);
+  }, []);
+
+  const todayWeekdayIdx = useMemo(() => {
+    const d = new Date();
+    return (d.getDay() + 6) % 7;
+  }, []);
 
   const baseline = useMemo<'new' | 'returning' | 'regular'>(() => {
     if (level === 'New' || recentRunsPerWeek <= 0) return 'new';
@@ -138,36 +157,55 @@ export default function OnboardingScreen({
     setPickerField((prev) => {
       const next = prev === field ? null : field;
       if (next) {
-        setDraftDateIso(next === 'start' ? startDate : goalDate || recommendedGoalDateIso);
+        const source = parseIsoDate(next === 'start' ? startDate : goalDate || recommendedGoalDateIso);
+        const sourceNoon = new Date(source.getFullYear(), source.getMonth(), source.getDate(), 12, 0, 0, 0);
+        setDraftDate(sourceNoon);
+        setCalendarMonth(new Date(sourceNoon.getFullYear(), sourceNoon.getMonth(), 1, 12, 0, 0, 0));
       }
       return next;
     });
   };
 
-  const onStartDateChange = (event: DateTimePickerEvent, selected?: Date) => {
-    if (!selected) {
-      return;
+  const pickerCandidate = (event: DateTimePickerEvent, selected?: Date): Date | null => {
+    if (selected instanceof Date && !Number.isNaN(selected.getTime())) {
+      return selected;
     }
+    const ts = (event as any)?.nativeEvent?.timestamp;
+    if (typeof ts === 'number' && Number.isFinite(ts)) {
+      const fromTs = new Date(ts);
+      if (!Number.isNaN(fromTs.getTime())) {
+        return fromTs;
+      }
+    }
+    return null;
+  };
+
+  const onStartDateChange = (event: DateTimePickerEvent, selected?: Date) => {
     if (Platform.OS === 'android' && event.type !== 'set') {
       setPickerField(null);
       return;
     }
-    const iso = toIsoDate(selected);
-    setDraftDateIso(iso);
+    const candidate = pickerCandidate(event, selected);
+    if (!candidate) return;
+    setDraftDate(candidate);
     if (Platform.OS === 'android') {
-      setStartDate(iso);
+      const picked = toIsoDate(candidate);
+      const safePicked = isoDayNumber(picked) >= isoDayNumber(todayIso) ? picked : todayIso;
+      setStartDate(safePicked);
       setPickerField(null);
     }
   };
+
   const onGoalDateChange = (event: DateTimePickerEvent, selected?: Date) => {
-    if (!selected) return;
     if (Platform.OS === 'android' && event.type !== 'set') {
       setPickerField(null);
       return;
     }
-    const iso = toIsoDate(selected);
-    setDraftDateIso(iso);
+    const candidate = pickerCandidate(event, selected);
+    if (!candidate) return;
+    setDraftDate(candidate);
     if (Platform.OS === 'android') {
+      const iso = toIsoDate(candidate);
       if (isoDayNumber(iso) >= isoDayNumber(minGoalDateIso)) {
         setGoalDate(iso);
         setGoalDateTouched(true);
@@ -178,12 +216,13 @@ export default function OnboardingScreen({
 
   const closePicker = () => {
     if (pickerField === 'start') {
-      setStartDate(draftDateIso || startDate);
+      const picked = toIsoDate(draftDate);
+      setStartDate(isoDayNumber(picked) >= isoDayNumber(todayIso) ? picked : todayIso);
       setPickerField(null);
       return;
     }
     if (pickerField === 'goal') {
-      const picked = draftDateIso || goalDate;
+      const picked = toIsoDate(draftDate);
       if (isoDayNumber(picked) >= isoDayNumber(minGoalDateIso)) {
         setGoalDate(picked);
         setGoalDateTouched(true);
@@ -194,6 +233,24 @@ export default function OnboardingScreen({
       setPickerField(null);
     }
   };
+
+  const calendarTitle = useMemo(
+    () => calendarMonth.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' }),
+    [calendarMonth]
+  );
+
+  const calendarDays = useMemo(() => {
+    const firstOfMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1, 12, 0, 0, 0);
+    const jsDay = firstOfMonth.getDay(); // 0=Sun..6=Sat
+    const mondayOffset = (jsDay + 6) % 7;
+    const start = new Date(firstOfMonth);
+    start.setDate(firstOfMonth.getDate() - mondayOffset);
+    return Array.from({ length: 42 }, (_, i) => {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      return d;
+    });
+  }, [calendarMonth]);
 
   const canNextStep = () => {
     if (step === 1) return !!goalMode && !!goal;
@@ -244,6 +301,20 @@ export default function OnboardingScreen({
         longest_recent_min: 0,
         continuous_run_min: inferredContinuousMin,
         run_walk_ok: level === 'Regular' ? 'No' : 'Yes',
+      });
+      const normalizedAvailability = currentWeekAvailability.map((v, i) => (i < todayWeekdayIdx ? false : v));
+      if (!normalizedAvailability.some((v) => v)) {
+        normalizedAvailability[todayWeekdayIdx] = true;
+      }
+      await setWeeklyAvailability(userId, {
+        week_start: weekStartIso,
+        mon: normalizedAvailability[0],
+        tue: normalizedAvailability[1],
+        wed: normalizedAvailability[2],
+        thu: normalizedAvailability[3],
+        fri: normalizedAvailability[4],
+        sat: normalizedAvailability[5],
+        sun: normalizedAvailability[6],
       });
       try {
         await generatePlan(userId, 16);
@@ -301,6 +372,7 @@ export default function OnboardingScreen({
                 mode="date"
                 display="default"
                 onChange={onStartDateChange}
+                minimumDate={parseIsoDate(todayIso)}
               />
             </View>
           ) : null}
@@ -377,6 +449,29 @@ export default function OnboardingScreen({
             ))}
           </View>
 
+          <Text style={styles.label}>Days available this week</Text>
+          <Text style={styles.helper}>Only remaining days are selectable.</Text>
+          <View style={styles.weekRow}>
+            {WEEKDAY_LABELS.map((day, idx) => {
+              const isPast = idx < todayWeekdayIdx;
+              const selected = currentWeekAvailability[idx];
+              return (
+                <Pressable
+                  key={day}
+                  disabled={isPast}
+                  onPress={() =>
+                    setCurrentWeekAvailability((prev) => prev.map((v, i) => (i === idx && !isPast ? !v : v)))
+                  }
+                  style={[styles.dayPill, selected && styles.dayPillOn, isPast && styles.dayPillDisabled]}
+                >
+                  <Text style={[styles.dayPillText, selected && styles.dayPillTextOn, isPast && styles.dayPillTextDisabled]}>
+                    {day[0]}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
           <View style={styles.summaryBox}>
             <Text style={styles.summaryTitle}>Plan Summary</Text>
             <Text style={styles.summaryText}>
@@ -426,14 +521,101 @@ export default function OnboardingScreen({
                 <Text style={styles.modalDone}>Done</Text>
               </Pressable>
             </View>
-            <DateTimePicker
-              value={parseIsoDate(draftDateIso || (pickerField === 'start' ? startDate : goalDate))}
-              mode="date"
-              display="spinner"
-              onChange={pickerField === 'start' ? onStartDateChange : onGoalDateChange}
-              minimumDate={pickerField === 'goal' ? parseIsoDate(minGoalDateIso) : undefined}
-              style={styles.iosPicker}
-            />
+            <Text style={styles.modalSelected}>Selected: {toDisplayDate(toIsoDate(draftDate))}</Text>
+            <View style={styles.calendarHeader}>
+              <Pressable
+                style={styles.monthNav}
+                onPress={() => {
+                  setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1, 12, 0, 0, 0));
+                }}
+              >
+                <Text style={styles.monthNavText}>‹</Text>
+              </Pressable>
+              <Text style={styles.calendarTitle}>{calendarTitle}</Text>
+              <Pressable
+                style={styles.monthNav}
+                onPress={() => {
+                  setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1, 12, 0, 0, 0));
+                }}
+              >
+                <Text style={styles.monthNavText}>›</Text>
+              </Pressable>
+            </View>
+            <View style={styles.weekdaysRow}>
+              {WEEKDAY_LABELS.map((w) => (
+                <Text key={w} style={styles.weekdayLabel}>
+                  {w}
+                </Text>
+              ))}
+            </View>
+            <View style={styles.calendarGrid}>
+              {calendarDays.map((d) => {
+                const iso = toIsoDate(d);
+                const isCurrentMonth = d.getMonth() === calendarMonth.getMonth();
+                const minIso = pickerField === 'goal' ? minGoalDateIso : todayIso;
+                const disabled = isoDayNumber(iso) < isoDayNumber(minIso);
+                const selected = isoDayNumber(iso) === isoDayNumber(toIsoDate(draftDate));
+                return (
+                  <Pressable
+                    key={iso}
+                    style={[
+                      styles.dayCell,
+                      selected && styles.dayCellSelected,
+                      !isCurrentMonth && styles.dayCellOutsideMonth,
+                    ]}
+                    disabled={disabled}
+                    onPress={() => {
+                      setDraftDate(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0));
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.dayCellText,
+                        selected && styles.dayCellTextSelected,
+                        !isCurrentMonth && styles.dayCellTextOutsideMonth,
+                        disabled && styles.dayCellTextDisabled,
+                      ]}
+                    >
+                      {d.getDate()}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={styles.quickRow}>
+              <Pressable
+                style={styles.quickBtn}
+                onPress={() => {
+                  const d = new Date(draftDate);
+                  d.setDate(d.getDate() - 1);
+                  setDraftDate(d);
+                  setCalendarMonth(new Date(d.getFullYear(), d.getMonth(), 1, 12, 0, 0, 0));
+                }}
+              >
+                <Text style={styles.quickBtnText}>-1 day</Text>
+              </Pressable>
+              <Pressable
+                style={styles.quickBtn}
+                onPress={() => {
+                  const d = new Date(draftDate);
+                  d.setDate(d.getDate() + 1);
+                  setDraftDate(d);
+                  setCalendarMonth(new Date(d.getFullYear(), d.getMonth(), 1, 12, 0, 0, 0));
+                }}
+              >
+                <Text style={styles.quickBtnText}>+1 day</Text>
+              </Pressable>
+              <Pressable
+                style={styles.quickBtn}
+                onPress={() => {
+                  const d = new Date();
+                  setDraftDate(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0));
+                  setCalendarMonth(new Date(d.getFullYear(), d.getMonth(), 1, 12, 0, 0, 0));
+                }}
+              >
+                <Text style={styles.quickBtnText}>Today</Text>
+              </Pressable>
+            </View>
           </View>
         </Modal>
       ) : null}
@@ -500,6 +682,22 @@ const styles = StyleSheet.create({
     minHeight: Platform.OS === 'android' ? 48 : undefined,
   },
   helper: { color: theme.colors.textMuted, fontSize: 12 },
+  weekRow: { flexDirection: 'row', gap: 8, marginTop: 2 },
+  dayPill: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surfaceAlt,
+  },
+  dayPillOn: { borderColor: theme.colors.accent, backgroundColor: theme.colors.accentSoft },
+  dayPillDisabled: { opacity: 0.35 },
+  dayPillText: { color: theme.colors.textMuted, fontWeight: '700' },
+  dayPillTextOn: { color: theme.colors.accent, fontWeight: '800' },
+  dayPillTextDisabled: { color: theme.colors.textMuted },
   summaryBox: {
     marginTop: 8,
     borderWidth: 1,
@@ -569,8 +767,52 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
   },
-  iosPicker: {
-    alignSelf: 'stretch',
-    height: 216,
+  modalSelected: { color: theme.colors.textMuted, fontWeight: '600' },
+  calendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
   },
+  monthNav: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthNavText: { color: theme.colors.accent, fontSize: 24, lineHeight: 24, fontWeight: '700' },
+  calendarTitle: { color: theme.colors.text, fontWeight: '700', fontSize: 18 },
+  weekdaysRow: { flexDirection: 'row', marginTop: 4 },
+  weekdayLabel: {
+    flex: 1,
+    textAlign: 'center',
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
+  dayCell: {
+    width: '14.2857%',
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+  },
+  dayCellSelected: { backgroundColor: theme.colors.accentSoft, borderWidth: 1, borderColor: theme.colors.accent },
+  dayCellOutsideMonth: { opacity: 0.38 },
+  dayCellText: { color: theme.colors.text, fontWeight: '600' },
+  dayCellTextSelected: { color: theme.colors.accent, fontWeight: '800' },
+  dayCellTextOutsideMonth: { color: theme.colors.textMuted },
+  dayCellTextDisabled: { color: theme.colors.textMuted, opacity: 0.35 },
+  quickRow: { flexDirection: 'row', gap: 8 },
+  quickBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 10,
+    backgroundColor: theme.colors.surfaceAlt,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  quickBtnText: { color: theme.colors.text, fontWeight: '700', fontSize: 12 },
 });
