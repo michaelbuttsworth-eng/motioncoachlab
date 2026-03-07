@@ -1,25 +1,74 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { bootstrapProfile, generatePlan, getPlanToday, getPlanUpcoming, MobilePlanToday, MobileUpcomingWorkout } from '../lib/api';
+import {
+  bootstrapProfile,
+  generatePlan,
+  getHistory,
+  getPlanToday,
+  getPlanUpcoming,
+  getWeeklyAvailability,
+  MobilePlanToday,
+  MobileUpcomingWorkout,
+  setWeeklyAvailability,
+} from '../lib/api';
 import { shadow, theme } from '../ui/theme';
+
+const WEEK_DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 
 export default function PlanTodayScreen({ userId }: { userId: number }) {
   const [data, setData] = useState<MobilePlanToday | null>(null);
   const [upcoming, setUpcoming] = useState<MobileUpcomingWorkout[]>([]);
+  const [todayDone, setTodayDone] = useState(false);
+  const [nextWeekAvailability, setNextWeekAvailability] = useState<boolean[]>([false, true, false, true, false, false, true]);
+  const [savingAvailability, setSavingAvailability] = useState(false);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
+  const nextWeekStartIso = React.useMemo(() => {
+    const now = new Date();
+    const mondayIdx = (now.getDay() + 6) % 7;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - mondayIdx);
+    monday.setHours(12, 0, 0, 0);
+    monday.setDate(monday.getDate() + 7);
+    return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+  }, []);
+  const nextWeekStartLabel = React.useMemo(() => {
+    const d = new Date(`${nextWeekStartIso}T00:00:00`);
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  }, [nextWeekStartIso]);
 
   const load = async () => {
     setLoading(true);
     setErr('');
     try {
-      const res = await getPlanToday(userId);
+      const [res, historyRes, availabilityRes] = await Promise.all([
+        getPlanToday(userId),
+        getHistory(userId).catch(() => ({ user_id: userId, items: [] })),
+        getWeeklyAvailability(userId, nextWeekStartIso).catch(() => null),
+      ]);
       setData(res);
+      const todayIso = localIsoDate();
+      const done = (historyRes.items || []).some((it) => toIso(toLocalSessionDate(it.started_at)) === todayIso);
+      setTodayDone(done);
+      if (availabilityRes) {
+        setNextWeekAvailability([
+          availabilityRes.mon,
+          availabilityRes.tue,
+          availabilityRes.wed,
+          availabilityRes.thu,
+          availabilityRes.fri,
+          availabilityRes.sat,
+          availabilityRes.sun,
+        ]);
+      }
       try {
         const upcomingRes = await getPlanUpcoming(userId, 8, false);
-        const todayIso = String(res.day);
-        setUpcoming((upcomingRes.items || []).filter((w) => String(w.day) > todayIso));
+        setUpcoming(
+          (upcomingRes.items || []).filter(
+            (w) => String(w.day) > todayIso && String(w.session_type || '').toLowerCase() !== 'rest'
+          )
+        );
       } catch {
         setUpcoming([]);
       }
@@ -33,8 +82,12 @@ export default function PlanTodayScreen({ userId }: { userId: number }) {
             getPlanUpcoming(userId, 8, false).catch(() => ({ user_id: userId, items: [] })),
           ]);
           setData(res);
-          const todayIso = String(res.day);
-          setUpcoming((upcomingRes.items || []).filter((w) => String(w.day) > todayIso));
+          const todayIso = localIsoDate();
+          setUpcoming(
+            (upcomingRes.items || []).filter(
+              (w) => String(w.day) > todayIso && String(w.session_type || '').toLowerCase() !== 'rest'
+            )
+          );
           setErr('');
           return;
         } catch (retryErr: any) {
@@ -53,8 +106,12 @@ export default function PlanTodayScreen({ userId }: { userId: number }) {
             getPlanUpcoming(userId, 8, false),
           ]);
           setData(res);
-          const todayIso = String(res.day);
-          setUpcoming((upcomingRes.items || []).filter((w) => String(w.day) > todayIso));
+          const todayIso = localIsoDate();
+          setUpcoming(
+            (upcomingRes.items || []).filter(
+              (w) => String(w.day) > todayIso && String(w.session_type || '').toLowerCase() !== 'rest'
+            )
+          );
           setErr('');
           return;
         } catch (retryErr: any) {
@@ -66,6 +123,7 @@ export default function PlanTodayScreen({ userId }: { userId: number }) {
       }
       setData(null);
       setUpcoming([]);
+      setTodayDone(false);
       setErr(msg || 'Failed to load plan');
     } finally {
       setLoading(false);
@@ -81,7 +139,6 @@ export default function PlanTodayScreen({ userId }: { userId: number }) {
       <View style={styles.hero}>
         <Text style={styles.eyebrow}>Plan</Text>
         <Text style={styles.heroTitle}>Today&apos;s Plan</Text>
-        <Text style={styles.heroText}>Stay consistent. One session at a time.</Text>
       </View>
 
       {err ? <Text style={styles.err}>{err}</Text> : null}
@@ -89,7 +146,14 @@ export default function PlanTodayScreen({ userId }: { userId: number }) {
       {data ? (
         <>
           <View style={styles.card}>
-            <Text style={styles.h1}>Today: {data.session_type}</Text>
+            <View style={styles.todayHead}>
+              <Text style={styles.h1}>Today: {data.session_type}</Text>
+              {todayDone ? (
+                <View style={styles.donePill}>
+                  <Text style={styles.donePillText}>Completed</Text>
+                </View>
+              ) : null}
+            </View>
             {!isC25KSession(data) ? <Text style={styles.p}>Planned distance: {data.planned_km} km</Text> : null}
             {data.interval ? (
               <>
@@ -105,7 +169,6 @@ export default function PlanTodayScreen({ userId }: { userId: number }) {
 
           {String(data.session_type || '').toLowerCase() === 'rest' && upcoming.length ? (
             <View style={styles.card}>
-              <Text style={styles.sectionEyebrow}>Rest Day</Text>
               <Text style={styles.h1}>Next Run: {formatDay(upcoming[0].day)}</Text>
               <View style={styles.heroWorkoutPill}>
                 <Text style={styles.heroWorkoutPillText}>{upcoming[0].session_type}</Text>
@@ -113,6 +176,55 @@ export default function PlanTodayScreen({ userId }: { userId: number }) {
               <Text style={styles.notes}>{workoutSummary(upcoming[0])}</Text>
             </View>
           ) : null}
+
+          <View style={styles.card}>
+            <Text style={styles.h1}>Next Week Availability</Text>
+            <Text style={styles.notes}>Week commencing {nextWeekStartLabel}. Pick days you can run.</Text>
+            <View style={styles.weekRow}>
+              {WEEK_DAYS.map((d, i) => (
+                <Pressable
+                  key={`${d}-${i}`}
+                  style={[styles.dayPill, nextWeekAvailability[i] && styles.dayPillOn]}
+                  onPress={() => setNextWeekAvailability((prev) => prev.map((v, idx) => (idx === i ? !v : v)))}
+                >
+                  <Text style={[styles.dayPillText, nextWeekAvailability[i] && styles.dayPillTextOn]}>{d}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable
+              style={[styles.refresh, savingAvailability && styles.disabledBtn]}
+              disabled={savingAvailability}
+              onPress={async () => {
+                const selectedCount = nextWeekAvailability.filter(Boolean).length;
+                if (selectedCount === 0) {
+                  setErr('Select at least one available day for next week.');
+                  return;
+                }
+                setSavingAvailability(true);
+                setErr('');
+                try {
+                  await setWeeklyAvailability(userId, {
+                    week_start: nextWeekStartIso,
+                    mon: nextWeekAvailability[0],
+                    tue: nextWeekAvailability[1],
+                    wed: nextWeekAvailability[2],
+                    thu: nextWeekAvailability[3],
+                    fri: nextWeekAvailability[4],
+                    sat: nextWeekAvailability[5],
+                    sun: nextWeekAvailability[6],
+                  });
+                  await generatePlan(userId, 16);
+                  await load();
+                } catch (e: any) {
+                  setErr(e?.message || 'Could not save next week availability.');
+                } finally {
+                  setSavingAvailability(false);
+                }
+              }}
+            >
+              <Text style={styles.refreshText}>{savingAvailability ? 'Saving...' : 'Save Next Week Plan'}</Text>
+            </Pressable>
+          </View>
 
           {upcoming.length ? (
             <View style={styles.card}>
@@ -154,6 +266,21 @@ export default function PlanTodayScreen({ userId }: { userId: number }) {
       </Pressable>
     </ScrollView>
   );
+}
+
+function localIsoDate(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function toIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function toLocalSessionDate(value: string): Date {
+  const hasTimezone = /(?:Z|[+\-]\d{2}:\d{2})$/.test(value);
+  const parsed = hasTimezone ? new Date(value) : new Date(`${value}Z`);
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 12, 0, 0, 0);
 }
 
 function formatDay(day: string): string {
@@ -198,9 +325,9 @@ const styles = StyleSheet.create({
   },
   eyebrow: { color: theme.colors.textMuted, fontWeight: '700', fontSize: 12, letterSpacing: 0.3 },
   heroTitle: { fontWeight: '800', fontSize: 22, color: theme.colors.text },
-  heroText: { color: theme.colors.textMuted },
   refresh: { backgroundColor: theme.colors.accent, borderRadius: theme.radius.md, padding: 12, alignItems: 'center' },
   refreshText: { color: theme.colors.accentText, fontWeight: '700' },
+  disabledBtn: { opacity: 0.65 },
   card: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
@@ -211,6 +338,16 @@ const styles = StyleSheet.create({
     ...shadow,
   },
   h1: { fontWeight: '700', fontSize: 18, color: theme.colors.text },
+  todayHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  donePill: {
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: '#8ad7b5',
+    backgroundColor: '#def7ec',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  donePillText: { color: '#118757', fontWeight: '800', fontSize: 11 },
   p: { color: theme.colors.text },
   notes: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 18 },
   sectionEyebrow: { color: theme.colors.textMuted, fontWeight: '700', fontSize: 11, letterSpacing: 0.3 },
@@ -246,5 +383,19 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   detailTitle: { color: theme.colors.text, fontWeight: '700', fontSize: 12 },
+  weekRow: { flexDirection: 'row', gap: 8, marginTop: 2 },
+  dayPill: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surfaceAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayPillOn: { borderColor: theme.colors.accent, backgroundColor: theme.colors.accentSoft },
+  dayPillText: { color: theme.colors.textMuted, fontWeight: '700' },
+  dayPillTextOn: { color: theme.colors.accent, fontWeight: '800' },
   err: { color: theme.colors.danger },
 });

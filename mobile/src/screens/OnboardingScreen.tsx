@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, NativeModules, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { generatePlan, setWeeklyAvailability, upsertOnboarding, upsertProfile } from '../lib/api';
 import { theme } from '../ui/theme';
+import * as Notifications from 'expo-notifications';
+import * as Location from 'expo-location';
 
 const GOAL_MODES = ['Prepare for an event', 'Build up to run a distance continuously'] as const;
 const GOALS = ['5K', '10K', 'Half', 'Marathon', 'Ultra/Other'] as const;
@@ -59,6 +61,7 @@ export default function OnboardingScreen({
   const [pickerField, setPickerField] = useState<PickerField>(null);
   const [draftDate, setDraftDate] = useState<Date>(new Date());
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
+  const healthModuleRef = useRef<any>(Platform.OS === 'ios' ? (NativeModules as any).MCLHealthKitManager : null);
   const [currentWeekAvailability, setCurrentWeekAvailability] = useState<boolean[]>(() => {
     const d = new Date();
     const idx = (d.getDay() + 6) % 7;
@@ -373,11 +376,29 @@ export default function OnboardingScreen({
       } catch {
         // Do not block onboarding completion if plan generation can be retried later.
       }
+      await requestCorePermissions();
       onDone();
     } catch (e: any) {
       setErr(e?.message || 'Failed to save onboarding');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const requestCorePermissions = async () => {
+    try {
+      await Notifications.requestPermissionsAsync();
+    } catch {}
+    try {
+      const fg = await Location.requestForegroundPermissionsAsync();
+      if (fg.status === 'granted') {
+        await Location.requestBackgroundPermissionsAsync();
+      }
+    } catch {}
+    if (Platform.OS === 'ios') {
+      try {
+        await healthModuleRef.current?.requestAccess?.();
+      } catch {}
     }
   };
 

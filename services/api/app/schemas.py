@@ -315,12 +315,30 @@ class MobilePlanTodayOut(BaseModel):
     interval: Optional[dict] = None
 
 
+class MobileUpcomingWorkoutOut(BaseModel):
+    day: date
+    session_type: str
+    planned_km: float
+    notes: Optional[str] = None
+    interval: Optional[dict] = None
+    total_motion_min: Optional[int] = None
+
+
+class MobilePlanUpcomingOut(BaseModel):
+    user_id: int
+    items: list[MobileUpcomingWorkoutOut]
+
+
 class MobileProgressOut(BaseModel):
     user_id: int
     week_start: date
     week_motion_min: float
     week_distance_km: float
     total_distance_km: float
+    planned_total_runs: int
+    completed_planned_runs: int
+    planned_week_runs: int
+    completed_week_runs: int
     plan_adherence_pct: float
     on_time_completion_pct: float
     consistency_score: float
@@ -345,6 +363,11 @@ class MobileHistoryItemOut(BaseModel):
 class MobileHistoryOut(BaseModel):
     user_id: int
     items: list[MobileHistoryItemOut]
+
+
+class MobileRunDeleteOut(BaseModel):
+    run_id: int
+    deleted: bool
 
 
 class PilotReportOut(BaseModel):

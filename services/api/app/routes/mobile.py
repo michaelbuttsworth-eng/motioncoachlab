@@ -20,6 +20,14 @@ router = APIRouter(prefix="/mobile", tags=["mobile"])
 def _week_start(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
+def _client_today(client_date: Optional[str]) -> date:
+    if client_date:
+        try:
+            return date.fromisoformat(client_date)
+        except Exception:
+            pass
+    return date.today()
+
 
 def _match_planned_sessions_to_runs(
     planned_run_days: list[date],
@@ -229,7 +237,8 @@ def mobile_session_checkin(
         db.add(row)
 
     db.flush()
-    actions = _apply_feedback_adaptation(db, session.user_id, row)
+    # Keep collecting check-in data, but do not auto-adjust the training plan yet.
+    actions: list[str] = []
     db.commit()
     db.refresh(row)
     return {"feedback": row, "actions_applied": actions}
@@ -238,12 +247,13 @@ def mobile_session_checkin(
 @router.get("/plan/today/{user_id}", response_model=schemas.MobilePlanTodayOut)
 def mobile_plan_today(
     user_id: int,
+    client_date: Optional[str] = None,
     authorization: str = Header(default=""),
     x_internal_key: str = Header(default=""),
     db: Session = Depends(get_db),
 ):
     _authorize_user_scope(db, user_id, authorization, x_internal_key)
-    today = date.today()
+    today = _client_today(client_date)
     row = db.query(models.PlanDay).filter_by(user_id=user_id, day=today).first()
     if not row:
         raise HTTPException(status_code=404, detail="No plan for today")
@@ -261,15 +271,66 @@ def mobile_plan_today(
     }
 
 
-@router.get("/progress/{user_id}", response_model=schemas.MobileProgressOut)
-def mobile_progress(
+@router.get("/plan/upcoming/{user_id}", response_model=schemas.MobilePlanUpcomingOut)
+def mobile_plan_upcoming(
     user_id: int,
+    limit: int = 5,
+    include_rest: bool = False,
+    client_date: Optional[str] = None,
     authorization: str = Header(default=""),
     x_internal_key: str = Header(default=""),
     db: Session = Depends(get_db),
 ):
     _authorize_user_scope(db, user_id, authorization, x_internal_key)
-    today = date.today()
+    today = _client_today(client_date)
+    capped_limit = max(1, min(int(limit or 5), 14))
+    query = db.query(models.PlanDay).filter(
+        models.PlanDay.user_id == user_id,
+        models.PlanDay.day >= today,
+    )
+    if not include_rest:
+        query = query.filter(models.PlanDay.session_type != "Rest")
+    rows = query.order_by(models.PlanDay.day.asc()).limit(capped_limit).all()
+
+    items: list[dict] = []
+    for row in rows:
+        interval = _parse_c25k(row.notes)
+        total_motion_min = None
+        if interval:
+            try:
+                total_motion_min = int(
+                    round(
+                        float(interval.get("warmup", 0))
+                        + float(interval.get("cooldown", 0))
+                        + (float(interval.get("run", 0)) + float(interval.get("walk", 0)))
+                        * float(interval.get("repeats", 0))
+                    )
+                )
+            except Exception:
+                total_motion_min = None
+        items.append(
+            {
+                "day": row.day,
+                "session_type": str(row.session_type or "Run/Walk"),
+                "planned_km": float(row.planned_km or 0),
+                "notes": row.notes,
+                "interval": interval,
+                "total_motion_min": total_motion_min,
+            }
+        )
+    return {"user_id": user_id, "items": items}
+
+
+@router.get("/progress/{user_id}", response_model=schemas.MobileProgressOut)
+def mobile_progress(
+    user_id: int,
+    client_date: Optional[str] = None,
+    authorization: str = Header(default=""),
+    x_internal_key: str = Header(default=""),
+    db: Session = Depends(get_db),
+):
+    _authorize_user_scope(db, user_id, authorization, x_internal_key)
+    today = _client_today(client_date)
     wk = _week_start(today)
 
     runs = db.query(models.Run).filter_by(user_id=user_id).all()
@@ -283,40 +344,40 @@ def mobile_progress(
     week_distance_km = round(sum((r.distance_m or 0) for r in week_runs) / 1000.0, 2)
     week_motion_min = round(sum((r.duration_s or 0) for r in week_runs) / 60.0, 1)
 
-    window_days = 28
-    period_start = today - timedelta(days=window_days - 1)
-
-    planned_days = (
+    # Entire plan completion: planned sessions across all generated plan days.
+    planned_days_all = (
         db.query(models.PlanDay)
         .filter(
             models.PlanDay.user_id == user_id,
-            models.PlanDay.day >= period_start,
-            models.PlanDay.day <= today,
         )
         .all()
     )
-    planned_run_days = [
+    planned_run_days_all = [
         d.day
-        for d in planned_days
-        if str(d.session_type or "").lower() != "rest" and float(d.planned_km or 0) > 0
+        for d in planned_days_all
+        if str(d.session_type or "").lower() != "rest"
     ]
-    run_dates = sorted(
-        [
-            r.start_time.date()
-            for r in runs
-            if period_start <= r.start_time.date() <= today
-        ]
-    )
-    planned_sessions = len(planned_run_days)
-    completed_sessions, delayed_sessions, on_time_sessions = _match_planned_sessions_to_runs(
-        planned_run_days, run_dates
+    run_dates_all = sorted([r.start_time.date() for r in runs])
+    planned_total_runs = len(planned_run_days_all)
+    completed_planned_runs, delayed_total_runs, on_time_total_runs = _match_planned_sessions_to_runs(
+        planned_run_days_all, run_dates_all
     )
 
-    plan_adherence_pct = round((completed_sessions / planned_sessions) * 100.0, 1) if planned_sessions else 0.0
-    on_time_completion_pct = (
-        round((on_time_sessions / planned_sessions) * 100.0, 1) if planned_sessions else 0.0
+    # Current week completion (to today) for the week summary line.
+    planned_week_days = [
+        d.day for d in planned_days_all if wk <= d.day <= today and str(d.session_type or "").lower() != "rest"
+    ]
+    run_dates_week = sorted([r.start_time.date() for r in runs if wk <= r.start_time.date() <= today])
+    planned_week_runs = len(planned_week_days)
+    completed_week_runs, _, _ = _match_planned_sessions_to_runs(planned_week_days, run_dates_week)
+
+    plan_adherence_pct = (
+        round((completed_planned_runs / planned_total_runs) * 100.0, 1) if planned_total_runs else 0.0
     )
-    delay_rate = (delayed_sessions / planned_sessions) if planned_sessions else 0.0
+    on_time_completion_pct = (
+        round((on_time_total_runs / planned_total_runs) * 100.0, 1) if planned_total_runs else 0.0
+    )
+    delay_rate = (delayed_total_runs / planned_total_runs) if planned_total_runs else 0.0
     consistency_score = round(max(0.0, (0.7 * (plan_adherence_pct / 100.0)) + (0.3 * (1.0 - delay_rate))) * 100, 1)
 
     load_by_week: dict[date, float] = {}
@@ -349,6 +410,10 @@ def mobile_progress(
         "week_motion_min": week_motion_min,
         "week_distance_km": week_distance_km,
         "total_distance_km": total_km,
+        "planned_total_runs": planned_total_runs,
+        "completed_planned_runs": completed_planned_runs,
+        "planned_week_runs": planned_week_runs,
+        "completed_week_runs": completed_week_runs,
         "plan_adherence_pct": plan_adherence_pct,
         "on_time_completion_pct": on_time_completion_pct,
         "consistency_score": consistency_score,
@@ -409,6 +474,67 @@ def mobile_history(
             }
         )
     return {"user_id": user_id, "items": items}
+
+
+def _delete_run_and_related(db: Session, user_id: int, run_id: int) -> None:
+    run = db.get(models.Run, run_id)
+    if not run or int(run.user_id) != int(user_id):
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    session_ids = [int(s.id) for s in db.query(models.DeviceSession.id).filter(models.DeviceSession.run_id == run_id).all()]
+
+    if session_ids:
+        db.query(models.DeviceSessionEvent).filter(models.DeviceSessionEvent.session_id.in_(session_ids)).delete(
+            synchronize_session=False
+        )
+    db.query(models.RunFeedback).filter(models.RunFeedback.run_id == run_id).delete(synchronize_session=False)
+    db.query(models.Achievement).filter(models.Achievement.run_id == run_id).delete(synchronize_session=False)
+    db.query(models.CommunityContribution).filter(models.CommunityContribution.run_id == run_id).delete(
+        synchronize_session=False
+    )
+    db.query(models.DeviceSession).filter(models.DeviceSession.run_id == run_id).delete(synchronize_session=False)
+    db.query(models.Run).filter(models.Run.id == run_id, models.Run.user_id == user_id).delete(synchronize_session=False)
+    db.commit()
+
+
+@router.delete("/history/{user_id}/{run_id}", response_model=schemas.MobileRunDeleteOut)
+def mobile_history_delete_run(
+    user_id: int,
+    run_id: int,
+    authorization: str = Header(default=""),
+    x_internal_key: str = Header(default=""),
+    db: Session = Depends(get_db),
+):
+    _authorize_user_scope(db, user_id, authorization, x_internal_key)
+    _delete_run_and_related(db, user_id, run_id)
+    return {"run_id": run_id, "deleted": True}
+
+
+@router.post("/history/{user_id}/{run_id}/delete", response_model=schemas.MobileRunDeleteOut)
+def mobile_history_delete_run_post(
+    user_id: int,
+    run_id: int,
+    authorization: str = Header(default=""),
+    x_internal_key: str = Header(default=""),
+    db: Session = Depends(get_db),
+):
+    _authorize_user_scope(db, user_id, authorization, x_internal_key)
+    _delete_run_and_related(db, user_id, run_id)
+    return {"run_id": run_id, "deleted": True}
+
+
+@router.post("/history/{user_id}/{run_id}", response_model=schemas.MobileRunDeleteOut)
+def mobile_history_delete_run_post_alt(
+    user_id: int,
+    run_id: int,
+    authorization: str = Header(default=""),
+    x_internal_key: str = Header(default=""),
+    db: Session = Depends(get_db),
+):
+    # Compatibility alias used by older clients.
+    _authorize_user_scope(db, user_id, authorization, x_internal_key)
+    _delete_run_and_related(db, user_id, run_id)
+    return {"run_id": run_id, "deleted": True}
 
 
 @router.get("/pilot-report/{user_id}", response_model=schemas.PilotReportOut)

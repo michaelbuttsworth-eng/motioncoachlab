@@ -29,7 +29,7 @@ const GOOGLE_ENABLED = String(process.env.EXPO_PUBLIC_GOOGLE_LOGIN_ENABLED || 'f
 const FACEBOOK_ENABLED = String(process.env.EXPO_PUBLIC_FACEBOOK_LOGIN_ENABLED || 'false') === 'true';
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('home');
+  const [tab, setTab] = useState<Tab>('run');
   const [userId, setUserId] = useState<number | null>(null);
   const [userName, setUserName] = useState('Runner');
   const [loading, setLoading] = useState(true);
@@ -167,7 +167,7 @@ export default function App() {
       <SafeAreaView style={styles.safe}>
         <StatusBar style="dark" />
         <View style={styles.authWrap}>
-          <Text style={styles.title}>MotionCoachLab</Text>
+          <Text style={styles.title}>Motion Coach</Text>
           <Text style={styles.authSub}>Train smart. Build consistency.</Text>
 
           <TextInput
@@ -211,7 +211,7 @@ export default function App() {
       <StatusBar style="dark" />
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>MotionCoachLab</Text>
+          <Text style={styles.title}>Motion Coach</Text>
           <Text style={styles.subtitle}>Pilot App</Text>
         </View>
         <View>

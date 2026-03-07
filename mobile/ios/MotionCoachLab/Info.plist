@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>MotionCoachLab</string>
+	<string>Motion Coach</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -54,10 +54,14 @@
 	</dict>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Motion Coach reads selected Health data to personalise training and recovery guidance.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Motion Coach writes completed workouts so your activity is reflected in Apple Health and rings.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>MotionCoachLab can track your run while the app is in background.</string>
+	<string>Motion Coach can track your run while the app is in background.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>MotionCoachLab uses location during your run to track distance and pace.</string>
+	<string>Motion Coach uses location during your run to track distance and pace.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Allow $(PRODUCT_NAME) to access your microphone</string>
 	<key>NSSupportsLiveActivities</key>

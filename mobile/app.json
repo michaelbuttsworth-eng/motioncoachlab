@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "MotionCoachLab",
+    "name": "Motion Coach",
     "slug": "motioncoachlab-mobile",
     "version": "0.1.2",
     "orientation": "portrait",
@@ -19,8 +19,10 @@
       "icon": "./assets/brand-assets/icon/icon-1024.png",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSLocationWhenInUseUsageDescription": "MotionCoachLab uses location during your run to track distance and pace.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "MotionCoachLab can track your run while the app is in background.",
+        "NSLocationWhenInUseUsageDescription": "Motion Coach uses location during your run to track distance and pace.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Motion Coach can track your run while the app is in background.",
+        "NSHealthShareUsageDescription": "Motion Coach reads selected Health data to personalise training and recovery guidance.",
+        "NSHealthUpdateUsageDescription": "Motion Coach writes completed workouts so your activity is reflected in Apple Health and rings.",
         "NSSupportsLiveActivities": true,
         "NSSupportsLiveActivitiesFrequentUpdates": true,
         "UIBackgroundModes": [

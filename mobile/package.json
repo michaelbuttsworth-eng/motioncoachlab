@@ -30,7 +30,8 @@
     "expo-task-manager": "~13.1.6",
     "react": "19.0.0",
     "react-native": "0.79.6",
-    "react-native-maps": "1.20.1"
+    "react-native-maps": "1.20.1",
+    "react-native-svg": "15.11.2"
   },
   "devDependencies": {
     "@expo/ngrok": "^4.1.3",

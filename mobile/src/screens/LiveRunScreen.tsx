@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Linking, NativeModules, Platform, Pressable, ScrollView, StyleSheet, Text, Vibration, View } from 'react-native';
+import { Alert, Animated, AppState, NativeModules, Platform, Pressable, ScrollView, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Svg, { Circle } from 'react-native-svg';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
@@ -19,8 +21,17 @@ import {
   startSession,
   stopSession,
 } from '../lib/api';
+import { shadow, theme } from '../ui/theme';
 
-type CheckStage = 'none' | 'effort' | 'fatigue' | 'pain_type' | 'pain_location' | 'done';
+type CheckStage = 'none' | 'feel' | 'done';
+type FeelValue = 'very_easy' | 'easy' | 'moderate' | 'hard' | 'very_hard';
+type RunSummary = {
+  mode: SessionMode;
+  durationSec: number;
+  distanceM: number;
+  endedAtMs: number;
+  feel?: FeelValue;
+};
 
 type Coord = { latitude: number; longitude: number; ts: number; accuracy?: number; speed?: number | null };
 
@@ -33,7 +44,14 @@ const CUE_AUDIO_ASSETS: Record<string, number> = {
   cue_cooldown: require('../../assets/audio/cues/cooldown.wav'),
   cue_summary: require('../../assets/audio/cues/summary.wav'),
   cue_halfway: require('../../assets/audio/cues/halfway.wav'),
+  cue_run_start: require('../../assets/audio/cues/run_start.wav'),
+  cue_run_end: require('../../assets/audio/cues/run_finish.wav'),
+  cue_walk_start: require('../../assets/audio/cues/walk_start.wav'),
+  cue_walk_end: require('../../assets/audio/cues/walk_finish.wav'),
+  cue_countdown_tick: require('../../assets/audio/cues/countdown_tick.wav'),
 };
+const START_COUNTDOWN_SEC = 5;
+type SessionMode = 'run' | 'walk';
 
 const BG_TASK_NAME = 'motioncoachlab-bg-location';
 let BG_POINTS: Coord[] = [];
@@ -54,24 +72,34 @@ if (!TaskManager.isTaskDefined(BG_TASK_NAME)) {
 
 export default function LiveRunScreen({
   userId,
+  backgroundMode,
+  guidedCuesEnabled,
   cueDetailMode,
-  onCueDetailModeChange,
+  keepScreenAwake,
+  testWarmupMin,
 }: {
   userId: number;
+  backgroundMode: boolean;
+  guidedCuesEnabled: boolean;
   cueDetailMode: boolean;
-  onCueDetailModeChange: (value: boolean) => void;
+  keepScreenAwake: boolean;
+  testWarmupMin: 1 | 5;
 }) {
+  const { width } = useWindowDimensions();
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [seconds, setSeconds] = useState(0);
   const [distanceM, setDistanceM] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const [backgroundMode, setBackgroundMode] = useState(true);
-  const [guidedCuesEnabled, setGuidedCuesEnabled] = useState(true);
   const [msg, setMsg] = useState('');
   const [checkStage, setCheckStage] = useState<CheckStage>('none');
   const [isStopping, setIsStopping] = useState(false);
-  const [check, setCheck] = useState({ effort: '', fatigue: '', pain_type: '', pain_location: '' });
+  const [activeMode, setActiveMode] = useState<SessionMode>('run');
+  const [guidedSession, setGuidedSession] = useState(false);
+  const [countdownSec, setCountdownSec] = useState<number | null>(null);
+  const [pendingStart, setPendingStart] = useState<{ mode: SessionMode; guided: boolean } | null>(null);
+  const [check, setCheck] = useState({ session_feel: '' });
+  const [lastRunSummary, setLastRunSummary] = useState<RunSummary | null>(null);
   const [routeCoords, setRouteCoords] = useState<Coord[]>([]);
   const [intervalPlan, setIntervalPlan] = useState<{ warmup: number; run: number; walk: number; repeats: number; cooldown: number } | null>(null);
   const [diag, setDiag] = useState<string[]>([]);
@@ -80,8 +108,8 @@ export default function LiveRunScreen({
   const [readinessIssues, setReadinessIssues] = useState<string[]>([]);
   const [scheduledCueCount, setScheduledCueCount] = useState(0);
   const [lastCueFired, setLastCueFired] = useState('');
-  const [testWarmupMin, setTestWarmupMin] = useState<1 | 5>(5);
-  const [keepScreenAwake, setKeepScreenAwake] = useState(false);
+  const DIAG_STORAGE_KEY = 'mcl_session_diag_v1';
+  const legAnim = useRef(new Animated.Value(1)).current;
 
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
   const pointsRef = useRef<Coord[]>([]);
@@ -101,6 +129,7 @@ export default function LiveRunScreen({
   const speechAudioModeRef = useRef(false);
   const notifReceivedSubRef = useRef<any>(null);
   const liveModuleRef = useRef<any>(Platform.OS === 'ios' ? (NativeModules as any).MCLiveActivityManager : null);
+  const healthModuleRef = useRef<any>(Platform.OS === 'ios' ? (NativeModules as any).MCLHealthKitManager : null);
   const latestSessionRef = useRef<number | null>(null);
   const latestSecondsRef = useRef(0);
   const latestDistanceRef = useRef(0);
@@ -128,7 +157,7 @@ export default function LiveRunScreen({
 
   const deriveLivePhase = (elapsedSec: number, paused: boolean) => {
     if (paused) return 'Paused';
-    if (!cuePlanRef.current.length) return 'Running';
+    if (!cuePlanRef.current.length) return activeMode === 'walk' ? 'Walking' : 'Running';
     let phase = 'Running';
     for (const c of cuePlanRef.current) {
       if (elapsedSec < c.atSec) break;
@@ -147,6 +176,20 @@ export default function LiveRunScreen({
 
     const phaseCueTypes = new Set(['cue_warmup', 'cue_warmup_intro', 'cue_run', 'cue_walk', 'cue_cooldown', 'cue_summary']);
     const phaseCues = cuePlanRef.current.filter((c) => phaseCueTypes.has(c.type));
+    if (!phaseCues.length) {
+      const phase = deriveLivePhase(elapsedSec, paused);
+      const nowEpoch = Date.now() / 1000;
+      return {
+        phase,
+        phaseLabel: phase,
+        segmentRemainingSec: 0,
+        sessionStartedAtEpoch: nowEpoch - Math.max(0, elapsedSec),
+        segmentEndsAtEpoch: nowEpoch,
+        blockProgress: 0,
+        intervalCurrent: 0,
+        intervalTotal: 0,
+      };
+    }
     let current = phaseCues[0] || { atSec: 0, type: 'cue_run', text: '' };
     let next: { atSec: number; type: string; text: string } | null = null;
     for (let i = 0; i < phaseCues.length; i += 1) {
@@ -334,7 +377,7 @@ export default function LiveRunScreen({
       const runs = cuePlanRef.current.filter((c) => c.type === 'cue_run');
       const totalRuns = Math.max(1, runs.length);
       const phaseCues = cuePlanRef.current.filter((c) =>
-        ['cue_warmup_intro', 'cue_warmup', 'cue_prerun', 'cue_run', 'cue_walk', 'cue_cooldown', 'cue_summary'].includes(c.type)
+        ['cue_warmup_intro', 'cue_warmup', 'cue_prerun', 'cue_run', 'cue_walk', 'cue_cooldown', 'cue_summary', 'cue_halfway'].includes(c.type)
       );
       const cues = phaseCues.map((c, idx) => {
         const next = phaseCues[idx + 1];
@@ -344,6 +387,7 @@ export default function LiveRunScreen({
           c.type === 'cue_run' ? 'Run' :
           c.type === 'cue_walk' ? 'Walk' :
           c.type === 'cue_cooldown' ? 'Cool-down' :
+          c.type === 'cue_halfway' ? 'Halfway' :
           c.type === 'cue_summary' ? 'Completed' :
           'Warm-up';
         const phaseLabel =
@@ -351,6 +395,7 @@ export default function LiveRunScreen({
           c.type === 'cue_walk' ? `Walk ${walkIndex}/${totalRuns}` :
           c.type === 'cue_prerun' ? 'Get Ready' :
           c.type === 'cue_cooldown' ? 'Cool-down' :
+          c.type === 'cue_halfway' ? 'Halfway' :
           c.type === 'cue_summary' ? 'Completed' :
           'Warm-up';
         return {
@@ -387,11 +432,14 @@ export default function LiveRunScreen({
     }
   };
 
-  const playLocalCue = async (cueType: string) => {
+  const playLocalCue = async (cueType: string, options?: { duck?: boolean }) => {
     const source = CUE_AUDIO_ASSETS[cueType];
     if (!source) return;
     try {
-      await setSpeechAudioMode(true);
+      const shouldDuck = options?.duck !== false;
+      if (shouldDuck) {
+        await setSpeechAudioMode(true);
+      }
       let player = cuePlayersRef.current[cueType];
       if (!player) {
         player = createAudioPlayer(source);
@@ -403,12 +451,15 @@ export default function LiveRunScreen({
         // continue
       }
       player.play();
-      if (localCueUnduckTimerRef.current) clearTimeout(localCueUnduckTimerRef.current);
-      localCueUnduckTimerRef.current = setTimeout(() => {
-        setSpeechAudioMode(false).catch(() => null);
-      }, 4500);
+      logDiag(`local cue play ${cueType}`);
+      if (shouldDuck) {
+        if (localCueUnduckTimerRef.current) clearTimeout(localCueUnduckTimerRef.current);
+        localCueUnduckTimerRef.current = setTimeout(() => {
+          setSpeechAudioMode(false).catch(() => null);
+        }, 4500);
+      }
     } catch {
-      // continue without local cue sound
+      logDiag(`local cue failed ${cueType}`);
     }
   };
 
@@ -474,9 +525,29 @@ export default function LiveRunScreen({
   }, []);
 
   useEffect(() => {
+    const preloadHealthSnapshot = async () => {
+      if (Platform.OS !== 'ios') return;
+      const mod = healthModuleRef.current;
+      if (!mod?.readRecoverySnapshot) return;
+      try {
+        const snapshot = await mod.readRecoverySnapshot();
+        const sleep = Number(snapshot?.sleepHours);
+        const rhr = Number(snapshot?.restingHeartRate);
+        if (Number.isFinite(sleep) || Number.isFinite(rhr)) {
+          logDiag(
+            `health snapshot${Number.isFinite(sleep) ? ` sleep=${sleep}h` : ''}${Number.isFinite(rhr) ? ` rhr=${Math.round(rhr)}` : ''}`
+          );
+        }
+      } catch {
+        // Do not block run flow if HealthKit read fails.
+      }
+    };
+    preloadHealthSnapshot();
+  }, []);
+
+  useEffect(() => {
     const setupNotifications = async () => {
       try {
-        await Notifications.requestPermissionsAsync();
         await Notifications.setNotificationHandler({
           handleNotification: async () => {
             const isActive = appStateRef.current === 'active';
@@ -592,7 +663,9 @@ export default function LiveRunScreen({
         setSeconds(recovered.seconds || 0);
         setDistanceM(recovered.distanceM || 0);
         setIsPaused(!!recovered.isPaused);
-        setBackgroundMode(!!recovered.backgroundMode);
+        setActiveMode((recovered as any).mode === 'walk' ? 'walk' : 'run');
+        setGuidedSession(!!(recovered as any).guidedSession);
+        // keep restored state only for this active session snapshot
         pauseAccumRef.current = Number(recovered.pauseAccumMs || 0);
         pointsRef.current = recovered.points || [];
         setRouteCoords(recovered.points || []);
@@ -623,7 +696,7 @@ export default function LiveRunScreen({
       persistActive().catch(() => null);
     }, 15000);
     return () => clearInterval(id);
-  }, [startedAt, sessionId, seconds, distanceM, isPaused, backgroundMode, routeCoords.length]);
+  }, [startedAt, sessionId, seconds, distanceM, isPaused, backgroundMode, activeMode, guidedSession, routeCoords.length]);
 
   useEffect(() => {
     if (!startedAt || isPaused) return;
@@ -643,10 +716,56 @@ export default function LiveRunScreen({
   const distanceLabel = useMemo(() => (distanceM < 1000 ? `${Math.round(distanceM)} m` : `${(distanceM / 1000).toFixed(2)} km`), [distanceM]);
   const pace = useMemo(() => {
     if (distanceM <= 0 || seconds <= 0) return '-';
-    const min = seconds / 60;
-    const km = distanceM / 1000;
-    return `${(min / km).toFixed(2)} min/km`;
+    const secPerKm = Math.round(seconds / (distanceM / 1000));
+    const mm = Math.floor(secPerKm / 60);
+    const ss = secPerKm % 60;
+    return `${mm}:${String(ss).padStart(2, '0')}"/km`;
   }, [distanceM, seconds]);
+  const liveSeg = useMemo(() => deriveLiveSegment(seconds, isPaused), [seconds, isPaused, activeMode]);
+  const legLabel = useMemo(() => {
+    if (!startedAt && countdownSec === null) return 'Ready';
+    if (countdownSec !== null) {
+      return pendingStart?.mode === 'walk' ? 'Starting walk' : 'Starting run';
+    }
+    if (liveSeg.phaseLabel.startsWith('Run ')) {
+      const parts = liveSeg.phaseLabel.replace('Run ', '').split('/');
+      return `Run ${parts[0] || '1'} of ${parts[1] || parts[0] || '1'}`;
+    }
+    if (liveSeg.phaseLabel.startsWith('Walk ')) {
+      const parts = liveSeg.phaseLabel.replace('Walk ', '').split('/');
+      return `Walk ${parts[0] || '1'} of ${parts[1] || parts[0] || '1'}`;
+    }
+    return liveSeg.phaseLabel;
+  }, [startedAt, countdownSec, liveSeg.phaseLabel, pendingStart?.mode]);
+  const legRemaining = useMemo(() => {
+    if (!startedAt && countdownSec === null) return '00:00';
+    if (countdownSec !== null) return String(Math.max(0, countdownSec));
+    if (!guidedSession || cuePlanRef.current.length === 0) {
+      const s = Math.max(0, Math.floor(seconds));
+      const mm = String(Math.floor(s / 60)).padStart(2, '0');
+      const ss = String(s % 60).padStart(2, '0');
+      return `${mm}:${ss}`;
+    }
+    const s = Math.max(0, Math.floor(liveSeg.segmentRemainingSec || 0));
+    const mm = String(Math.floor(s / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    return `${mm}:${ss}`;
+  }, [startedAt, countdownSec, guidedSession, liveSeg.segmentRemainingSec, seconds]);
+  const ringProgress = useMemo(() => {
+    if (countdownSec !== null) {
+      return Math.max(0, Math.min(1, (START_COUNTDOWN_SEC - countdownSec) / START_COUNTDOWN_SEC));
+    }
+    return Math.max(0, Math.min(1, liveSeg.blockProgress || 0));
+  }, [countdownSec, liveSeg.blockProgress]);
+  const ringSize = useMemo(() => Math.max(208, Math.min(288, width - 92)), [width]);
+  const ringStroke = ringSize < 235 ? 10 : 12;
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.timing(legAnim, { toValue: 0.86, duration: 120, useNativeDriver: true }),
+      Animated.spring(legAnim, { toValue: 1, friction: 7, tension: 120, useNativeDriver: true }),
+    ]).start();
+  }, [legLabel, legAnim]);
 
   const requestLocation = async (): Promise<boolean> => {
     const fg = await Location.requestForegroundPermissionsAsync();
@@ -672,7 +791,7 @@ export default function LiveRunScreen({
         distanceInterval: 10,
         pausesUpdatesAutomatically: false,
         foregroundService: {
-          notificationTitle: 'MotionCoachLab run in progress',
+          notificationTitle: 'Motion Coach run in progress',
           notificationBody: 'Tracking your run in background.',
         },
       });
@@ -731,8 +850,23 @@ export default function LiveRunScreen({
 
   const logDiag = (line: string) => {
     const ts = new Date().toLocaleTimeString();
-    setDiag((d) => [`${ts} ${line}`, ...d].slice(0, 10));
+    setDiag((d) => {
+      const next = [`${ts} ${line}`, ...d].slice(0, 20);
+      AsyncStorage.setItem(DIAG_STORAGE_KEY, JSON.stringify(next)).catch(() => null);
+      return next;
+    });
   };
+
+  useEffect(() => {
+    AsyncStorage.getItem(DIAG_STORAGE_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return;
+        setDiag(parsed.filter((x) => typeof x === 'string').slice(0, 20));
+      })
+      .catch(() => null);
+  }, []);
 
   const refreshSyncStatus = async () => {
     const pending = await getPendingSyncCount();
@@ -751,6 +885,8 @@ export default function LiveRunScreen({
       isPaused,
       pauseAccumMs: pauseAccumRef.current,
       backgroundMode,
+      mode: activeMode,
+      guidedSession,
       points: routeCoords.slice(-300),
     });
   };
@@ -769,6 +905,33 @@ export default function LiveRunScreen({
     } catch {
       await enqueueAction('event', sid, { event_type, payload_json });
       await refreshSyncStatus();
+    }
+  };
+
+  const writeWorkoutToHealth = async (mode: SessionMode, durationSec: number, distanceM: number) => {
+    if (Platform.OS !== 'ios') return;
+    const mod = healthModuleRef.current;
+    if (!mod?.writeWorkout) {
+      logDiag('healthkit unavailable (native module missing)');
+      return;
+    }
+    try {
+      const res = await mod.writeWorkout({
+        mode,
+        durationSec: Math.max(1, Math.floor(durationSec)),
+        distanceM: Math.max(0, distanceM),
+        endedAtEpoch: Date.now() / 1000,
+      });
+      if (res?.ok) {
+        logDiag('healthkit workout saved');
+      } else {
+        logDiag(`healthkit skipped: ${String(res?.reason || 'unknown')}`);
+        if (res?.reason === 'permission_denied') {
+          setMsg('Enable Apple Health permissions for Motion Coach to save workouts.');
+        }
+      }
+    } catch (e: any) {
+      logDiag(`healthkit write failed: ${String(e?.message || e || 'unknown')}`);
     }
   };
 
@@ -821,7 +984,7 @@ export default function LiveRunScreen({
       try {
         const id = await Notifications.scheduleNotificationAsync({
           content: {
-            title: 'MotionCoachLab',
+            title: 'Motion Coach',
             body: c.text,
             sound: 'default',
             data: { cueType: c.type, mclCue: true, sessionId: cueSessionIdRef.current || undefined },
@@ -859,8 +1022,8 @@ export default function LiveRunScreen({
         continue;
       }
 
-      // Play the same recorded cue sound immediately when app is active.
-      if (appStateRef.current === 'active') {
+      // Play the same recorded cue sound whenever app is not backgrounded.
+      if (appStateRef.current !== 'background') {
         playLocalCue(c.type).catch(() => null);
         Vibration.vibrate(120);
       }
@@ -901,7 +1064,7 @@ export default function LiveRunScreen({
       }
     }
     cues.push({ atSec: t, text: `Cool-down walk`, type: 'cue_cooldown' });
-    const half = Math.floor(t / 2);
+    const half = Math.floor(t * 0.6);
 
     const totalMotion = Math.round(plan.warmup + (plan.repeats * (plan.run + plan.walk)) + plan.cooldown);
     const totalRun = Math.round(plan.repeats * plan.run);
@@ -924,7 +1087,33 @@ export default function LiveRunScreen({
     await startNativeCuePlayback(0);
   };
 
-  const onStart = async () => {
+  const beginStartCountdown = (params: { mode: SessionMode; guided: boolean }) => {
+    if (startedAt || countdownSec !== null) return;
+    setPendingStart(params);
+    setCountdownSec(START_COUNTDOWN_SEC);
+    setMsg('');
+  };
+
+  useEffect(() => {
+    if (countdownSec === null) return;
+    if (countdownSec <= 0) {
+      const pending = pendingStart;
+      setCountdownSec(null);
+      setPendingStart(null);
+      if (pending) {
+        startSessionFlow(pending).catch((e: any) => setMsg(e?.message || 'Start failed'));
+      }
+      return;
+    }
+    playLocalCue('cue_countdown_tick', { duck: false }).catch(() => null);
+    Vibration.vibrate(40);
+    const id = setTimeout(() => {
+      setCountdownSec((prev) => (prev === null ? null : prev - 1));
+    }, 1000);
+    return () => clearTimeout(id);
+  }, [countdownSec, pendingStart]);
+
+  const startSessionFlow = async ({ mode, guided }: { mode: SessionMode; guided: boolean }) => {
     if (!(await requestLocation())) return;
     if (backgroundMode) {
       try {
@@ -947,6 +1136,10 @@ export default function LiveRunScreen({
       setIsStopping(false);
       setSessionId(s.id);
       setStartedAt(Date.now());
+      setActiveMode(mode);
+      setGuidedSession(guided);
+      setLastRunSummary(null);
+      setCheckStage('none');
       setSeconds(0);
       setDistanceM(0);
       setIsPaused(false);
@@ -965,16 +1158,32 @@ export default function LiveRunScreen({
       logDiag(`session started (id ${s.id})`);
       setMsg(backgroundMode ? 'Session started. GPS + background tracking on.' : 'Session started. GPS tracking on.');
       await sendEvent(s.id, 'start');
-      if (guidedCuesEnabled) {
+      if (guided) {
         await scheduleCues(s.id);
       } else {
         totalPlannedSecRef.current = 0;
+        await playLocalCue(mode === 'walk' ? 'cue_walk_start' : 'cue_run_start');
+        Vibration.vibrate(120);
       }
       await startLiveActivity(s.id, 0, 0, false);
       await persistActive();
     } catch (e: any) {
       setMsg(e?.message || 'Start failed');
     }
+  };
+
+  const onStartWalk = () => beginStartCountdown({ mode: 'walk', guided: false });
+
+  const onStartRun = () => {
+    const hasGuidedPlan = !!intervalPlan && intervalPlan.repeats > 0 && intervalPlan.run > 0;
+    if (!guidedCuesEnabled || !hasGuidedPlan) {
+      beginStartCountdown({ mode: 'run', guided: false });
+      return;
+    }
+    Alert.alert('Guided run today?', 'Do you want interval voice guidance for this run?', [
+      { text: 'No', style: 'cancel', onPress: () => beginStartCountdown({ mode: 'run', guided: false }) },
+      { text: 'Yes', onPress: () => beginStartCountdown({ mode: 'run', guided: true }) },
+    ]);
   };
 
   const onPauseResume = async () => {
@@ -1024,6 +1233,7 @@ export default function LiveRunScreen({
 
       const merged = mergePoints(pointsRef.current, BG_POINTS);
       const mergedDistance = computeDistance(merged);
+      const durationSec = Math.max(1, seconds);
       const route = merged
         .slice(0, 500)
         .map((p) => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`)
@@ -1032,7 +1242,7 @@ export default function LiveRunScreen({
       setDistanceM(mergedDistance);
       setRouteCoords(merged);
       logDiag(`stopped: ${Math.round(mergedDistance)}m in ${seconds}s, points=${merged.length}`);
-      const stopPayload = { distance_m: Math.round(mergedDistance), duration_s: Math.max(1, seconds), route_polyline: route || undefined };
+      const stopPayload = { distance_m: Math.round(mergedDistance), duration_s: durationSec, route_polyline: route || undefined };
       try {
         await stopSession(sessionId, stopPayload.distance_m, stopPayload.duration_s, stopPayload.route_polyline);
       } catch {
@@ -1041,11 +1251,27 @@ export default function LiveRunScreen({
         logDiag('stop queued for sync');
       }
       await clearActiveSession();
-      await endLiveActivity(sessionId, Math.max(1, seconds), mergedDistance);
+      await endLiveActivity(sessionId, durationSec, mergedDistance);
+      await writeWorkoutToHealth(activeMode, durationSec, mergedDistance);
+      if (!guidedSession) {
+        await playLocalCue(activeMode === 'walk' ? 'cue_walk_end' : 'cue_run_end');
+        Vibration.vibrate(120);
+      }
       setStartedAt(null);
+      setGuidedSession(false);
       setIsPaused(false);
-      setMsg('Run saved. Quick check-in: effort, fatigue, and pain/discomfort.');
-      setCheckStage('effort');
+      setSeconds(0);
+      setDistanceM(0);
+      setLastCueFired('');
+      setScheduledCueCount(0);
+      setMsg('Run saved. Quick check-in.');
+      setCheckStage('feel');
+      setLastRunSummary({
+        mode: activeMode,
+        durationSec,
+        distanceM: mergedDistance,
+        endedAtMs: Date.now(),
+      });
     } catch (e: any) {
       setMsg(e?.message || 'Stop failed');
     } finally {
@@ -1053,50 +1279,31 @@ export default function LiveRunScreen({
     }
   };
 
-  const pushScore = (value: string) => {
-    if (checkStage === 'effort') {
-      setCheck((x) => ({ ...x, effort: value }));
-      setCheckStage('fatigue');
-      return;
-    }
-    if (checkStage === 'fatigue') {
-      setCheck((x) => ({ ...x, fatigue: value }));
-      setCheckStage('pain_type');
-    }
+  const FEEL_MAP: Record<FeelValue, { effort: string; fatigue: string; pain: string; session_feel: string; note: string }> = {
+    very_easy: { effort: 'easy', fatigue: 'fresh', pain: 'none', session_feel: 'too_easy', note: 'very_easy' },
+    easy: { effort: 'moderate', fatigue: 'fresh', pain: 'none', session_feel: 'slight_progress', note: 'easy' },
+    moderate: { effort: 'moderate', fatigue: 'heavy', pain: 'none', session_feel: 'about_right', note: 'moderate' },
+    hard: { effort: 'hard', fatigue: 'heavy', pain: 'minor', session_feel: 'hard_repeat', note: 'hard' },
+    very_hard: { effort: 'max', fatigue: 'very_heavy', pain: 'pain_form', session_feel: 'too_hard', note: 'very_hard' },
   };
 
-  const deriveSessionFeel = (effort: number, fatigue: number, painType: string): string => {
-    if (painType === 'sharp_stride_change' || painType === 'stop_run_pain' || (effort >= 8 && fatigue >= 8)) return 'too_hard';
-    if (effort <= 3 && fatigue <= 3 && painType === 'no_pain') return 'too_easy';
-    return 'about_right';
-  };
-
-  const submitCheckinWithScores = async (painType?: string, painLocation?: string) => {
+  const submitFeelCheckin = async (feel: FeelValue) => {
     if (!sessionId) return;
-    const effortN = Number(check.effort);
-    const fatigueN = Number(check.fatigue);
-    const pType = painType ?? check.pain_type;
-    const pLoc = painLocation ?? check.pain_location;
-    const painLabel: Record<string, string> = {
-      no_pain: 'none',
-      normal_discomfort: 'minor',
-      niggle: 'minor',
-      sharp_stride_change: 'pain_form',
-      stop_run_pain: 'pain_form',
-    };
+    const mapped = FEEL_MAP[feel];
     const payload = {
-      effort: scoreToEffort(effortN),
-      fatigue: scoreToFatigue(fatigueN),
-      pain: painLabel[pType] || 'minor',
-      session_feel: deriveSessionFeel(effortN, fatigueN, pType),
-      notes: `scores effort=${effortN}, fatigue=${fatigueN}, pain_type=${pType}, pain_location=${pLoc || 'na'}`,
+      effort: mapped.effort,
+      fatigue: mapped.fatigue,
+      pain: mapped.pain,
+      session_feel: mapped.session_feel,
+      notes: mapped.note,
     };
     try {
       const res = await checkinSession(sessionId, payload);
       setCheckStage('done');
-      setMsg(res.actions_applied?.length ? `Saved. ${res.actions_applied.join(' ')}` : 'Saved. No changes needed.');
+      setMsg('Check-in saved.');
+      setLastRunSummary((prev) => (prev ? { ...prev, feel } : prev));
       setSessionId(null);
-      setCheck({ effort: '', fatigue: '', pain_type: '', pain_location: '' });
+      setCheck({ session_feel: '' });
       await clearActiveSession();
     } catch (e: any) {
       try {
@@ -1104,26 +1311,13 @@ export default function LiveRunScreen({
         await refreshSyncStatus();
         setCheckStage('done');
         setMsg('Check-in saved locally. Will sync when network is available.');
+        setLastRunSummary((prev) => (prev ? { ...prev, feel } : prev));
         setSessionId(null);
-        setCheck({ effort: '', fatigue: '', pain_type: '', pain_location: '' });
+        setCheck({ session_feel: '' });
       } catch {
         setMsg(e?.message || 'Check-in failed');
       }
     }
-  };
-
-  const selectPainType = (painType: string) => {
-    setCheck((x) => ({ ...x, pain_type: painType }));
-    if (painType === 'niggle' || painType === 'sharp_stride_change' || painType === 'stop_run_pain') {
-      setCheckStage('pain_location');
-      return;
-    }
-    submitCheckinWithScores(painType, '');
-  };
-
-  const selectPainLocation = (painLocation: string) => {
-    setCheck((x) => ({ ...x, pain_location: painLocation }));
-    submitCheckinWithScores(check.pain_type, painLocation);
   };
 
   const region = useMemo(() => buildRegion(routeCoords), [routeCoords]);
@@ -1131,71 +1325,110 @@ export default function LiveRunScreen({
   return (
     <ScrollView style={styles.wrap} contentContainerStyle={styles.wrapContent}>
       <View style={styles.card}>
-        <Text style={styles.h1}>Live Run</Text>
-        <Text style={styles.meta}>Sync: {syncState}{pendingSyncCount ? ` (${pendingSyncCount} pending)` : ''}</Text>
-        <Text style={styles.meta}>Lock cues scheduled: {scheduledCueCount}</Text>
-        <Text style={styles.meta}>Last cue: {lastCueFired || '-'}</Text>
-        <Text style={styles.p}>Elapsed: {elapsed}</Text>
-        <Text style={styles.p}>Distance: {distanceLabel}</Text>
-        <Text style={styles.p}>Pace: {pace}</Text>
+        <View style={styles.runHeaderRow}>
+          <Text style={styles.h1}>Run</Text>
+          <Text style={styles.meta}>Sync: {syncState}{pendingSyncCount ? ` (${pendingSyncCount})` : ''}</Text>
+        </View>
+
+        <View style={styles.ringWrap}>
+          <RingProgress
+            progress={ringProgress}
+            size={ringSize}
+            stroke={ringStroke}
+          />
+          <Animated.View
+            style={[
+              styles.ringCenter,
+              {
+                transform: [{ scale: legAnim }],
+                opacity: legAnim.interpolate({ inputRange: [0.86, 1], outputRange: [0.75, 1] }),
+              },
+            ]}
+          >
+            <Text style={styles.legLabel}>{legLabel}</Text>
+            <Text style={styles.legTime}>{legRemaining}</Text>
+            <Text style={styles.legHint}>{countdownSec !== null ? 'Get ready' : 'Current leg'}</Text>
+          </Animated.View>
+        </View>
+
+        <View style={styles.metricRow}>
+          <MetricItem label="Time in motion" value={elapsed} />
+          <MetricItem label="Distance" value={distanceLabel} />
+          <MetricItem label="Pace" value={pace} noDivider />
+        </View>
+        {__DEV__ ? <Text style={styles.meta}>Last cue: {lastCueFired || '-'} • Scheduled: {scheduledCueCount}</Text> : null}
 
         {!startedAt ? (
-          <>
-          <View style={styles.row}>
-            <Pressable
-              style={[styles.smallBtn, backgroundMode && styles.toggleOn]}
-              onPress={() => setBackgroundMode((v) => !v)}
-            >
-              <Text style={styles.smallBtnText}>Background: {backgroundMode ? 'On' : 'Off'}</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.smallBtn, guidedCuesEnabled && styles.toggleOn]}
-              onPress={() => setGuidedCuesEnabled((v) => !v)}
-            >
-              <Text style={styles.smallBtnText}>Guided Cues: {guidedCuesEnabled ? 'On' : 'Off'}</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.smallBtn, cueDetailMode && styles.toggleOn]}
-              onPress={() => onCueDetailModeChange(!cueDetailMode)}
-            >
-              <Text style={styles.smallBtnText}>Cue Detail: {cueDetailMode ? 'On' : 'Off'}</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.smallBtn, keepScreenAwake && styles.toggleOn]}
-              onPress={() => setKeepScreenAwake((v) => !v)}
-            >
-              <Text style={styles.smallBtnText}>Keep Screen Awake: {keepScreenAwake ? 'On' : 'Off'}</Text>
-            </Pressable>
+          <View style={styles.centerActionWrap}>
+            <View style={styles.startRow}>
+              <Pressable style={[styles.startSecondary, countdownSec !== null && styles.disabledBtn]} onPress={onStartWalk} disabled={countdownSec !== null}>
+                <Text style={styles.startSecondaryText}>Start Walk</Text>
+              </Pressable>
+              <Pressable style={[styles.startPrimary, countdownSec !== null && styles.disabledBtn]} onPress={onStartRun} disabled={countdownSec !== null}>
+                <Text style={styles.startPrimaryText}>Start Run</Text>
+              </Pressable>
+            </View>
           </View>
-          <View style={styles.row}>
-            <Pressable
-              style={[styles.smallBtn, testWarmupMin === 1 && styles.toggleOn]}
-              onPress={() => setTestWarmupMin(1)}
-            >
-              <Text style={styles.smallBtnText}>Warm-up 1m</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.smallBtn, testWarmupMin === 5 && styles.toggleOn]}
-              onPress={() => setTestWarmupMin(5)}
-            >
-              <Text style={styles.smallBtnText}>Warm-up 5m</Text>
-            </Pressable>
-            <Pressable style={styles.primary} onPress={onStart}>
-              <Text style={styles.primaryText}>Start Run</Text>
-            </Pressable>
-          </View>
-          </>
         ) : (
           <View style={styles.row}>
             <Pressable style={[styles.smallBtn, isStopping && styles.disabledBtn]} onPress={onPauseResume} disabled={isStopping}>
               <Text style={styles.smallBtnText}>{isPaused ? 'Resume' : 'Pause'}</Text>
             </Pressable>
             <Pressable style={[styles.stop, isStopping && styles.disabledBtn]} onPress={onStop} disabled={isStopping}>
-              <Text style={styles.primaryText}>{isStopping ? 'Stopping...' : 'Stop Run'}</Text>
+              <Text style={styles.primaryText}>{isStopping ? 'Stopping...' : activeMode === 'walk' ? 'Stop Walk' : 'Stop Run'}</Text>
             </Pressable>
           </View>
         )}
       </View>
+
+      {checkStage === 'feel' ? (
+        <View style={styles.card}>
+          <Text style={styles.h2}>How hard did that feel?</Text>
+          <View style={styles.emojiRow}>
+            {[
+              { icon: '😄', value: 'very_easy' as const },
+              { icon: '🙂', value: 'easy' as const },
+              { icon: '😐', value: 'moderate' as const },
+              { icon: '😮', value: 'hard' as const },
+              { icon: '🥵', value: 'very_hard' as const },
+            ].map((option) => (
+              <Pressable
+                key={option.value}
+                style={[styles.emojiBtn, check.session_feel === option.value && styles.emojiBtnOn]}
+                onPress={async () => {
+                  setCheck({ session_feel: option.value });
+                  await submitFeelCheckin(option.value);
+                }}
+              >
+                <Text style={styles.emojiIcon}>{option.icon}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.scaleLegendRow}>
+            <Text style={styles.scaleLegendText}>Easy</Text>
+            <View style={styles.scaleLegendLine} />
+            <Text style={styles.scaleLegendText}>Hard</Text>
+          </View>
+        </View>
+      ) : null}
+
+      {lastRunSummary && !startedAt ? (
+        <View style={styles.card}>
+          <Text style={styles.h2}>Last run summary</Text>
+          <Text style={styles.summaryMeta}>
+            {lastRunSummary.mode === 'walk' ? 'Walk' : 'Run'} · {new Date(lastRunSummary.endedAtMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+          </Text>
+          <View style={styles.metricRow}>
+            <MetricItem label="Time in motion" value={formatDuration(lastRunSummary.durationSec)} />
+            <MetricItem label="Distance" value={formatDistance(lastRunSummary.distanceM)} />
+            <MetricItem label="Pace" value={formatPace(lastRunSummary.durationSec, lastRunSummary.distanceM)} noDivider />
+          </View>
+          <View style={styles.summaryFeelRow}>
+            <Text style={styles.summaryFeelLabel}>Check-in</Text>
+            <Text style={styles.summaryFeelValue}>{lastRunSummary.feel ? feelToEmoji(lastRunSummary.feel) : 'Pending'}</Text>
+          </View>
+        </View>
+      ) : null}
 
       {region && routeCoords.length >= 2 ? (
         <View style={styles.mapCard}>
@@ -1204,7 +1437,7 @@ export default function LiveRunScreen({
             <Polyline
               coordinates={routeCoords.map((p) => ({ latitude: p.latitude, longitude: p.longitude }))}
               strokeWidth={4}
-              strokeColor="#5a8f2f"
+              strokeColor={theme.colors.accent}
             />
             <Marker coordinate={{ latitude: routeCoords[0].latitude, longitude: routeCoords[0].longitude }} title="Start" />
             <Marker
@@ -1218,70 +1451,79 @@ export default function LiveRunScreen({
         </View>
       ) : null}
 
-      {checkStage !== 'none' && checkStage !== 'done' ? (
-        <View style={styles.card}>
-          <Text style={styles.h2}>
-            {checkStage === 'effort' && 'How hard was it?'}
-            {checkStage === 'fatigue' && 'Leg fatigue right now?'}
-            {checkStage === 'pain_type' && 'Any pain or discomfort?'}
-            {checkStage === 'pain_location' && 'Where is it?'}
-          </Text>
-          {(checkStage === 'effort' || checkStage === 'fatigue') ? (
-            <View style={styles.rowWrap}>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-                <Pressable key={n} style={styles.scoreBtn} onPress={() => pushScore(String(n))}>
-                  <Text>{n}</Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-          {checkStage === 'pain_type' ? (
-            <View style={styles.rowWrap}>
-              <Pressable style={styles.choiceBtn} onPress={() => selectPainType('no_pain')}><Text style={styles.choiceText}>No pain</Text></Pressable>
-              <Pressable style={styles.choiceBtn} onPress={() => selectPainType('normal_discomfort')}><Text style={styles.choiceText}>Normal training discomfort</Text></Pressable>
-              <Pressable style={styles.choiceBtn} onPress={() => selectPainType('niggle')}><Text style={styles.choiceText}>Niggle</Text></Pressable>
-              <Pressable style={styles.choiceBtn} onPress={() => selectPainType('sharp_stride_change')}><Text style={styles.choiceText}>Sharp pain / changed stride</Text></Pressable>
-              <Pressable style={styles.choiceBtn} onPress={() => selectPainType('stop_run_pain')}><Text style={styles.choiceText}>Stop-run pain</Text></Pressable>
-            </View>
-          ) : null}
-          {checkStage === 'pain_location' ? (
-            <View style={styles.rowWrap}>
-              {['Foot/ankle', 'Shin/calf', 'Knee', 'Hip', 'Back', 'Other'].map((label) => (
-                <Pressable key={label} style={styles.choiceBtn} onPress={() => selectPainLocation(label)}>
-                  <Text style={styles.choiceText}>{label}</Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-
       {msg ? <Text style={styles.msg}>{msg}</Text> : null}
-      {!!readinessIssues.length ? (
-        <View style={styles.card}>
-          <Text style={styles.h2}>Run Readiness</Text>
-          <Text style={styles.meta}>Fix these before relying on lock-screen cues:</Text>
-          {readinessIssues.map((i) => (
-            <Text key={i} style={styles.meta}>- {i}</Text>
-          ))}
-          <View style={styles.row}>
-            <Pressable style={styles.smallBtn} onPress={() => evaluateReadiness().catch(() => null)}>
-              <Text style={styles.smallBtnText}>Re-check</Text>
-            </Pressable>
-            <Pressable style={styles.smallBtn} onPress={() => Linking.openSettings()}>
-              <Text style={styles.smallBtnText}>Open Settings</Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
-      <Pressable style={styles.syncBtn} onPress={flushPending}>
-        <Text style={styles.syncBtnText}>Sync Pending Now</Text>
-      </Pressable>
-      <View style={styles.diagCard}>
-        <Text style={styles.h2}>Session Diagnostics</Text>
-        {diag.length ? diag.map((d, i) => <Text key={i} style={styles.diagLine}>{d}</Text>) : <Text style={styles.meta}>No events yet.</Text>}
-      </View>
     </ScrollView>
+  );
+}
+
+function MetricItem({ label, value, noDivider }: { label: string; value: string; noDivider?: boolean }) {
+  return (
+    <View style={[styles.metricItem, noDivider && styles.metricItemLast]}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={styles.metricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function formatDuration(totalSec: number) {
+  const sec = Math.max(0, Math.floor(totalSec));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function formatDistance(distanceM: number) {
+  return distanceM < 1000 ? `${Math.round(distanceM)} m` : `${(distanceM / 1000).toFixed(2)} km`;
+}
+
+function formatPace(durationSec: number, distanceM: number) {
+  if (distanceM <= 0 || durationSec <= 0) return '-';
+  const secPerKm = Math.round(durationSec / (distanceM / 1000));
+  const mm = Math.floor(secPerKm / 60);
+  const ss = secPerKm % 60;
+  return `${mm}:${String(ss).padStart(2, '0')}"/km`;
+}
+
+function feelToEmoji(feel: FeelValue) {
+  const map: Record<FeelValue, string> = {
+    very_easy: '😄',
+    easy: '🙂',
+    moderate: '😐',
+    hard: '😮',
+    very_hard: '🥵',
+  };
+  return map[feel];
+}
+
+function RingProgress({ progress, size, stroke }: { progress: number; size: number; stroke: number }) {
+  const radius = (size - stroke) / 2;
+  const c = 2 * Math.PI * radius;
+  const offset = c * (1 - progress);
+  return (
+    <Svg width={size} height={size}>
+      <Circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        stroke={theme.colors.border}
+        strokeWidth={stroke}
+        fill="none"
+      />
+      <Circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        stroke={theme.colors.accent}
+        strokeWidth={stroke}
+        fill="none"
+        strokeLinecap="round"
+        strokeDasharray={`${c} ${c}`}
+        strokeDashoffset={offset}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+      />
+    </Svg>
   );
 }
 
@@ -1332,20 +1574,14 @@ function segmentMeters(prev: Coord, next: Coord): number {
 
 function shouldAnnounceTurnaround(points: Coord[]): boolean {
   if (points.length < 20) return true;
-  const latest = points[points.length - 1];
-  let nearCount = 0;
-  for (let i = 0; i < points.length - 20; i += 4) {
-    const p = points[i];
-    const d = haversineMeters(latest.latitude, latest.longitude, p.latitude, p.longitude);
-    if (d < 30) nearCount += 1;
-    if (nearCount >= 3) return false;
-  }
   const start = points[0];
+  const latest = points[points.length - 1];
   const displacement = haversineMeters(start.latitude, start.longitude, latest.latitude, latest.longitude);
   const traveled = computeDistance(points);
-  if (traveled < 400) return false;
-  if (displacement < 80) return false;
-  return true;
+  if (traveled < 500) return false;
+  const ratio = displacement / Math.max(1, traveled);
+  // Loop/oval paths usually have low displacement compared to distance traveled.
+  return ratio >= 0.22;
 }
 
 function buildRegion(points: Coord[]) {
@@ -1376,44 +1612,177 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
   return R * c;
 }
 
-function scoreToEffort(score: number): string {
-  if (score >= 9) return 'max';
-  if (score >= 7) return 'hard';
-  if (score >= 4) return 'moderate';
-  return 'easy';
-}
-
-function scoreToFatigue(score: number): string {
-  if (score >= 8) return 'very_heavy';
-  if (score >= 5) return 'heavy';
-  return 'fresh';
-}
-
 const styles = StyleSheet.create({
   wrap: { flex: 1 },
   wrapContent: { gap: 12, paddingBottom: 24 },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#dae6ce', gap: 8 },
-  mapCard: { backgroundColor: '#fff', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: '#dae6ce', gap: 8 },
-  map: { height: 220, borderRadius: 8 },
-  h1: { fontSize: 18, fontWeight: '700', color: '#1f2d1f' },
-  h2: { fontSize: 16, fontWeight: '700', color: '#1f2d1f' },
-  p: { color: '#203020' },
-  primary: { flex: 1, backgroundColor: '#6b8f41', borderRadius: 10, padding: 12, alignItems: 'center' },
-  stop: { flex: 1, backgroundColor: '#b4492f', borderRadius: 10, padding: 12, alignItems: 'center' },
-  toggleOn: { backgroundColor: '#d7ebc8' },
+  card: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    gap: 8,
+    ...shadow,
+  },
+  mapCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    gap: 8,
+    ...shadow,
+  },
+  map: { height: 220, borderRadius: theme.radius.md },
+  h1: { fontSize: 20, fontWeight: '800', color: theme.colors.text },
+  h2: { fontSize: 16, fontWeight: '700', color: theme.colors.text },
+  p: { color: theme.colors.text },
+  runHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  ringWrap: { alignSelf: 'center', marginTop: 2, marginBottom: 4 },
+  ringCenter: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  legLabel: { color: theme.colors.textMuted, fontWeight: '700', fontSize: 14 },
+  legTime: { color: theme.colors.text, fontSize: 52, fontWeight: '800', letterSpacing: -1 },
+  legHint: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600', letterSpacing: 0.2 },
+  metricRow: {
+    marginTop: -2,
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    overflow: 'hidden',
+    backgroundColor: theme.colors.surfaceAlt,
+  },
+  metricItem: { flex: 1, paddingVertical: 10, paddingHorizontal: 8, alignItems: 'center', borderRightWidth: 1, borderColor: theme.colors.border },
+  metricItemLast: { borderRightWidth: 0 },
+  metricLabel: { color: theme.colors.textMuted, fontSize: 11, fontWeight: '700' },
+  metricValue: { color: theme.colors.text, fontSize: 16, fontWeight: '800', marginTop: 2, textAlign: 'center' },
+  centerActionWrap: { alignItems: 'center', marginTop: 2 },
+  startRow: { flexDirection: 'row', gap: 10, width: '100%' },
+  startPrimary: {
+    flex: 1,
+    backgroundColor: theme.colors.accent,
+    borderRadius: 999,
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow,
+  },
+  startSecondary: {
+    flex: 1,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderRadius: 999,
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  startPrimaryText: { color: theme.colors.accentText, fontWeight: '800', fontSize: 18 },
+  startSecondaryText: { color: theme.colors.text, fontWeight: '800', fontSize: 18 },
+  primary: {
+    flex: 1,
+    backgroundColor: theme.colors.accent,
+    borderRadius: theme.radius.md,
+    padding: 12,
+    alignItems: 'center',
+  },
+  stop: {
+    flex: 1,
+    backgroundColor: theme.colors.brandOrange,
+    borderRadius: theme.radius.md,
+    padding: 12,
+    alignItems: 'center',
+  },
+  toggleOn: { backgroundColor: theme.colors.accentSoft, borderColor: theme.colors.accent },
   disabledBtn: { opacity: 0.6 },
-  primaryText: { color: '#fff', fontWeight: '700' },
-  rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  scoreBtn: { width: 42, height: 42, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#edf4e7' },
-  choiceBtn: { minHeight: 40, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#edf4e7', paddingHorizontal: 12, paddingVertical: 10 },
-  choiceText: { color: '#243824', fontWeight: '600' },
+  primaryText: { color: theme.colors.accentText, fontWeight: '700' },
+  emojiRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  emojiBtn: {
+    flex: 1,
+    minHeight: 78,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  emojiBtnOn: { borderColor: theme.colors.accent, backgroundColor: theme.colors.accentSoft },
+  emojiIcon: { fontSize: 24 },
+  scaleLegendRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  scaleLegendText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '700' },
+  scaleLegendLine: {
+    flex: 1,
+    maxWidth: 140,
+    height: 2,
+    borderRadius: 999,
+    backgroundColor: theme.colors.border,
+  },
   row: { flexDirection: 'row', gap: 8 },
-  smallBtn: { flex: 1, padding: 10, alignItems: 'center', borderRadius: 8, backgroundColor: '#edf4e7' },
-  smallBtnText: { fontWeight: '700' },
-  msg: { color: '#203020' },
-  meta: { color: '#526c49', fontSize: 12 },
-  syncBtn: { backgroundColor: '#e8f0df', borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
-  syncBtnText: { color: '#37522d', fontWeight: '700', fontSize: 12 },
-  diagCard: { backgroundColor: '#fff', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: '#dae6ce', gap: 4 },
-  diagLine: { color: '#4b6143', fontSize: 12 },
+  smallBtn: {
+    flex: 1,
+    padding: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  smallBtnText: { fontWeight: '700', color: theme.colors.text },
+  settingChip: {
+    minHeight: 38,
+    borderRadius: theme.radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  settingChipOn: { backgroundColor: theme.colors.accentSoft, borderColor: theme.colors.accent },
+  settingChipText: { color: theme.colors.text, fontWeight: '700', fontSize: 12 },
+  settingChipTextOn: { color: theme.colors.accent, fontWeight: '800' },
+  msg: { color: theme.colors.text },
+  meta: { color: theme.colors.textMuted, fontSize: 12 },
+  syncBtn: {
+    backgroundColor: theme.colors.accentSoft,
+    borderRadius: 8,
+    paddingVertical: 9,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#b8d8f3',
+  },
+  syncBtnText: { color: '#0f4e7f', fontWeight: '700', fontSize: 12 },
+  diagCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    gap: 4,
+    ...shadow,
+  },
+  diagLine: { color: theme.colors.textMuted, fontSize: 12 },
+  summaryMeta: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },
+  summaryFeelRow: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+  },
+  summaryFeelLabel: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '700' },
+  summaryFeelValue: { color: theme.colors.text, fontSize: 24, fontWeight: '700' },
 });

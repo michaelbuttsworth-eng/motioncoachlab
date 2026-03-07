@@ -127,6 +127,7 @@ export type MobilePlanToday = {
   planned_km: number;
   notes?: string | null;
   interval?: Record<string, string | number> | null;
+  total_motion_min?: number | null;
 };
 
 export type MobileUpcomingWorkout = {
@@ -149,6 +150,10 @@ export type MobileProgress = {
   week_motion_min: number;
   week_distance_km: number;
   total_distance_km: number;
+  planned_total_runs: number;
+  completed_planned_runs: number;
+  planned_week_runs: number;
+  completed_week_runs: number;
   plan_adherence_pct: number;
   on_time_completion_pct: number;
   consistency_score: number;
@@ -173,6 +178,10 @@ export type MobileHistoryItem = {
 export type MobileHistory = {
   user_id: number;
   items: MobileHistoryItem[];
+};
+export type MobileRunDelete = {
+  run_id: number;
+  deleted: boolean;
 };
 
 export type SessionStart = { id: number; user_id: number; started_at: string; status: string; run_id?: number | null };
@@ -209,12 +218,35 @@ export function bootstrapProfile(userId: number) {
   return req(`/users/${userId}/profile/bootstrap`, { method: 'POST' });
 }
 
-export function getProgress(userId: number) {
-  return req<MobileProgress>(`/mobile/progress/${userId}`);
+export function getProgress(userId: number, clientDate?: string) {
+  const date = clientDate || localIsoDate();
+  return req<MobileProgress>(`/mobile/progress/${userId}?client_date=${date}`);
 }
 
 export function getHistory(userId: number) {
   return req<MobileHistory>(`/mobile/history/${userId}`);
+}
+
+export function deleteHistoryRun(userId: number, runId: number) {
+  const attempts: Array<{ path: string; method: 'POST' | 'DELETE' }> = [
+    { path: `/mobile/history/${userId}/${runId}/delete`, method: 'POST' },
+    { path: `/mobile/history/${userId}/${runId}`, method: 'DELETE' },
+    { path: `/mobile/history/${userId}/${runId}`, method: 'POST' },
+    { path: `/mobile/history/delete/${userId}/${runId}`, method: 'DELETE' },
+  ];
+  return (async () => {
+    let lastErr: unknown = null;
+    for (const attempt of attempts) {
+      try {
+        return await req<MobileRunDelete>(attempt.path, { method: attempt.method });
+      } catch (e: any) {
+        lastErr = e;
+        const msg = String(e?.message || '');
+        if (!msg.includes('404')) throw e;
+      }
+    }
+    throw lastErr || new Error('404 Not Found');
+  })();
 }
 
 export function startSession(user_id: number) {
@@ -342,6 +374,8 @@ type ActiveSessionSnapshot = {
   isPaused: boolean;
   pauseAccumMs: number;
   backgroundMode: boolean;
+  mode?: 'run' | 'walk';
+  guidedSession?: boolean;
   points: Array<{ latitude: number; longitude: number; ts: number }>;
 };
 

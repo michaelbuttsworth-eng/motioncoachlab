@@ -2,6 +2,7 @@ import ActivityKit
 import AVFoundation
 import AudioToolbox
 import Foundation
+import HealthKit
 import React
 import UIKit
 
@@ -23,6 +24,189 @@ struct MotionCoachLiveActivityAttributes: ActivityAttributes {
   }
 
   var sessionId: String
+}
+
+@objc(MCLHealthKitManager)
+class MCLHealthKitManager: NSObject {
+  private let store = HKHealthStore()
+  private let readWindowDays = 14
+
+  @objc
+  static func requiresMainQueueSetup() -> Bool {
+    return false
+  }
+
+  @objc(writeWorkout:resolver:rejecter:)
+  func writeWorkout(payload: NSDictionary, resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    guard HKHealthStore.isHealthDataAvailable() else {
+      resolve(["ok": false, "reason": "health_data_unavailable"])
+      return
+    }
+
+    guard HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning) != nil else {
+      reject("E_HEALTHKIT_TYPE", "Distance type unavailable", nil)
+      return
+    }
+
+    requestAccessInternal { [weak self] granted, authError in
+      guard let self else { return }
+      if !granted {
+        resolve(["ok": false, "reason": "permission_denied", "error": authError?.localizedDescription ?? "HealthKit authorization denied"])
+        return
+      }
+
+      let modeRaw = String(describing: payload["mode"] ?? "run").lowercased()
+      let activityType: HKWorkoutActivityType = (modeRaw == "walk" || modeRaw == "walking") ? .walking : .running
+
+      let durationSec = max(1.0, (payload["durationSec"] as? NSNumber)?.doubleValue ?? 1.0)
+      let endEpoch = (payload["endedAtEpoch"] as? NSNumber)?.doubleValue ?? Date().timeIntervalSince1970
+      let endDate = Date(timeIntervalSince1970: endEpoch)
+      let startDate = endDate.addingTimeInterval(-durationSec)
+
+      let distanceM = max(0.0, (payload["distanceM"] as? NSNumber)?.doubleValue ?? 0.0)
+      let totalDistance = distanceM > 0 ? HKQuantity(unit: HKUnit.meter(), doubleValue: distanceM) : nil
+
+      let workout = HKWorkout(
+        activityType: activityType,
+        start: startDate,
+        end: endDate,
+        duration: durationSec,
+        totalEnergyBurned: nil,
+        totalDistance: totalDistance,
+        metadata: nil
+      )
+
+      self.store.save(workout) { success, saveError in
+        if success {
+          resolve(["ok": true])
+        } else {
+          resolve(["ok": false, "reason": "save_failed", "error": saveError?.localizedDescription ?? "Unknown save error"])
+        }
+      }
+    }
+  }
+
+  @objc(requestAccess:rejecter:)
+  func requestAccess(resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    guard HKHealthStore.isHealthDataAvailable() else {
+      resolve(["ok": false, "reason": "health_data_unavailable"])
+      return
+    }
+    requestAccessInternal { granted, authError in
+      let errorValue: Any = authError?.localizedDescription ?? NSNull()
+      resolve([
+        "ok": granted,
+        "reason": granted ? "authorized" : "permission_denied",
+        "error": errorValue
+      ])
+    }
+  }
+
+  @objc(readRecoverySnapshot:rejecter:)
+  func readRecoverySnapshot(resolver resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
+    guard HKHealthStore.isHealthDataAvailable() else {
+      resolve(["ok": false, "reason": "health_data_unavailable"])
+      return
+    }
+
+    requestAccessInternal { [weak self] granted, authError in
+      guard let self else { return }
+      if !granted {
+        resolve(["ok": false, "reason": "permission_denied", "error": authError?.localizedDescription ?? "HealthKit authorization denied"])
+        return
+      }
+
+      let group = DispatchGroup()
+      var sleepHours: Double?
+      var restingHr: Double?
+
+      group.enter()
+      self.fetchLatestSleepHours { value in
+        sleepHours = value
+        group.leave()
+      }
+
+      group.enter()
+      self.fetchLatestRestingHeartRate { value in
+        restingHr = value
+        group.leave()
+      }
+
+      group.notify(queue: .main) {
+        let sleepValue: Any = sleepHours as Any? ?? NSNull()
+        let restingHrValue: Any = restingHr as Any? ?? NSNull()
+        resolve([
+          "ok": true,
+          "sleepHours": sleepValue,
+          "restingHeartRate": restingHrValue
+        ])
+      }
+    }
+  }
+
+  private func requestAccessInternal(completion: @escaping (Bool, Error?) -> Void) {
+    guard let distanceType = HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning),
+          let restingHrType = HKObjectType.quantityType(forIdentifier: .restingHeartRate),
+          let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else {
+      completion(false, nil)
+      return
+    }
+
+    let writeTypes: Set<HKSampleType> = [HKObjectType.workoutType(), distanceType]
+    let readTypes: Set<HKObjectType> = [restingHrType, sleepType]
+    store.requestAuthorization(toShare: writeTypes, read: readTypes, completion: completion)
+  }
+
+  private func fetchLatestRestingHeartRate(completion: @escaping (Double?) -> Void) {
+    guard let restingHrType = HKObjectType.quantityType(forIdentifier: .restingHeartRate) else {
+      completion(nil)
+      return
+    }
+    let start = Calendar.current.date(byAdding: .day, value: -readWindowDays, to: Date()) ?? Date()
+    let predicate = HKQuery.predicateForSamples(withStart: start, end: Date(), options: .strictEndDate)
+    let sort = [NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)]
+    let query = HKSampleQuery(sampleType: restingHrType, predicate: predicate, limit: 1, sortDescriptors: sort) { _, samples, _ in
+      guard let sample = samples?.first as? HKQuantitySample else {
+        completion(nil)
+        return
+      }
+      let value = sample.quantity.doubleValue(for: HKUnit.count().unitDivided(by: HKUnit.minute()))
+      completion(value)
+    }
+    store.execute(query)
+  }
+
+  private func fetchLatestSleepHours(completion: @escaping (Double?) -> Void) {
+    guard let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else {
+      completion(nil)
+      return
+    }
+    let end = Date()
+    let start = Calendar.current.date(byAdding: .hour, value: -36, to: end) ?? end
+    let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictEndDate)
+    let sort = [NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)]
+    let query = HKSampleQuery(sampleType: sleepType, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: sort) { _, samples, _ in
+      guard let categorySamples = samples as? [HKCategorySample], !categorySamples.isEmpty else {
+        completion(nil)
+        return
+      }
+      var asleepValues: Set<Int> = [HKCategoryValueSleepAnalysis.asleep.rawValue]
+      if #available(iOS 16.0, *) {
+        asleepValues.formUnion([
+          HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+          HKCategoryValueSleepAnalysis.asleepDeep.rawValue,
+          HKCategoryValueSleepAnalysis.asleepREM.rawValue,
+          HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue,
+        ])
+      }
+      let seconds = categorySamples.reduce(0.0) { partial, sample in
+        guard asleepValues.contains(sample.value) else { return partial }
+        return partial + sample.endDate.timeIntervalSince(sample.startDate)
+      }
+      completion(seconds > 0 ? round((seconds / 3600.0) * 100) / 100 : nil)
+    }
+    store.execute(query)
+  }
 }
 
 @objc(MCLiveActivityManager)
