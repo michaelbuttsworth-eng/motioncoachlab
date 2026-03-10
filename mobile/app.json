@@ -2,13 +2,14 @@
   "expo": {
     "name": "Motion Coach",
     "slug": "motioncoachlab-mobile",
-    "version": "0.1.2",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/brand-assets/icon/icon-1024.png",
     "splash": {
-      "image": "./assets/brand-assets/icon/motioncoach-mark-1024.png",
+      "image": "./assets/brand-assets/logo/motioncoach-wordmark-splash-transparent.png",
+      "imageWidth": 320,
       "resizeMode": "contain",
-      "backgroundColor": "#E5F0DA"
+      "backgroundColor": "#e9f8fb"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -30,7 +31,7 @@
           "location"
         ]
       },
-      "buildNumber": "3"
+      "buildNumber": "4"
     },
     "android": {
       "package": "com.motioncoachlab.app",
@@ -49,13 +50,17 @@
       "bundler": "metro",
       "favicon": "./assets/brand-assets/web/favicon.ico"
     },
-    "extra": {
-      "eas": {
-        "projectId": "b2813eac-3c1e-48dc-9d68-62cf03d54571"
-      }
-    },
     "owner": "butlox",
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/brand-assets/logo/motioncoach-wordmark-splash-transparent.png",
+          "imageWidth": 320,
+          "resizeMode": "contain",
+          "backgroundColor": "#e9f8fb"
+        }
+      ],
       "expo-asset",
       "expo-secure-store",
       "expo-audio",

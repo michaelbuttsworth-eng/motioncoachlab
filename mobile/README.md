@@ -1,7 +1,7 @@
 # MotionCoachLab Mobile (v1 scaffold)
 
 ## Setup
-1. `cd /Users/michaelbuttsworth/.openclaw/motioncoachlab/mobile`
+1. `cd /Users/michaelbuttsworth/Projects/apps/motioncoachlab/mobile`
 2. `npm install`
 3. Create `.env` in this folder:
 
@@ -19,11 +19,13 @@ Use your Mac LAN IP (not localhost) for testing on phone.
 - Guest session token is stored securely on-device.
 - Apple/Google/Facebook login buttons are placeholders for the next auth phase.
 
-## Build Profiles
-- Development client: `npm run build:ios:dev`
-- Internal preview: `npm run build:ios:preview`
-- Production build: `npm run build:ios:prod`
-- Submit to TestFlight: `npm run submit:ios`
+## iOS Release Flow (Xcode only)
+1. `cd /Users/michaelbuttsworth/Projects/apps/motioncoachlab/mobile/ios`
+2. `pod install`
+3. `open MotionCoachLab.xcworkspace`
+4. In Xcode: select scheme `MotionCoachLab` and archive for `Any iOS Device (arm64)`
+5. Upload archive to App Store Connect from Organizer
+6. Add testers in TestFlight
 
 ## Included screens
 - Plan Today
@@ -39,5 +41,6 @@ Use your Mac LAN IP (not localhost) for testing on phone.
 - Backend `/mobile/*` endpoints are implemented and ready.
 
 ## Docs
-- TestFlight pipeline: `/Users/michaelbuttsworth/.openclaw/motioncoachlab/mobile/docs/testflight_pipeline.md`
-- Social login roadmap: `/Users/michaelbuttsworth/.openclaw/motioncoachlab/mobile/docs/social_login_roadmap.md`
+- Xcode release checklist: `/Users/michaelbuttsworth/Projects/apps/motioncoachlab/mobile/docs/xcode_release_checklist.md`
+- TestFlight pipeline: `/Users/michaelbuttsworth/Projects/apps/motioncoachlab/mobile/docs/testflight_pipeline.md`
+- Social login roadmap: `/Users/michaelbuttsworth/Projects/apps/motioncoachlab/mobile/docs/social_login_roadmap.md`

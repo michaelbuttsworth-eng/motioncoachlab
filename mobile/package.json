@@ -6,13 +6,11 @@
   "scripts": {
     "start": "expo start",
     "ios": "expo run:ios",
+    "ios:dev": "APP_ENV=development expo run:ios",
+    "ios:preview": "APP_ENV=preview expo run:ios",
     "android": "expo run:android",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit",
-    "build:ios:dev": "eas build --platform ios --profile development",
-    "build:ios:preview": "eas build --platform ios --profile preview",
-    "build:ios:prod": "eas build --platform ios --profile production",
-    "submit:ios": "eas submit --platform ios --profile production"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.1.2",
@@ -26,6 +24,7 @@
     "expo-notifications": "~0.31.5",
     "expo-secure-store": "~14.2.4",
     "expo-speech": "~13.1.7",
+    "expo-splash-screen": "~0.30.10",
     "expo-status-bar": "~2.2.3",
     "expo-task-manager": "~13.1.6",
     "react": "19.0.0",
