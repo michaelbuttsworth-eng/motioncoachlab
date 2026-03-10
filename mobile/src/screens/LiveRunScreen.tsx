@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, AppState, NativeModules, Platform, Pressable, ScrollView, StyleSheet, Text, Vibration, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated, AppState, NativeModules, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, Vibration, View, useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Circle } from 'react-native-svg';
 import * as Location from 'expo-location';
@@ -10,10 +10,13 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import {
   clearActiveSession,
+  cacheCheckinNoteForRun,
   checkinSession,
   enqueueAction,
   flushSyncQueue,
   getPendingSyncCount,
+  MobilePlanToday,
+  getPlanUpcoming,
   getPlanToday,
   loadActiveSession,
   saveActiveSession,
@@ -21,6 +24,7 @@ import {
   startSession,
   stopSession,
 } from '../lib/api';
+import { drainPendingWatchEvents, sendWatchPayload, subscribeWatchEvents } from '../lib/watch';
 import { shadow, theme } from '../ui/theme';
 
 type CheckStage = 'none' | 'feel' | 'done';
@@ -31,6 +35,18 @@ type RunSummary = {
   distanceM: number;
   endedAtMs: number;
   feel?: FeelValue;
+};
+type PostRunReview = {
+  sessionId: number | null;
+  runId?: number | null;
+  mode: SessionMode;
+  durationSec: number;
+  distanceM: number;
+  endedAtMs: number;
+  route: Coord[];
+  writeHealth: boolean;
+  feel?: FeelValue;
+  notes: string;
 };
 
 type Coord = { latitude: number; longitude: number; ts: number; accuracy?: number; speed?: number | null };
@@ -56,15 +72,23 @@ type SessionMode = 'run' | 'walk';
 const BG_TASK_NAME = 'motioncoachlab-bg-location';
 let BG_POINTS: Coord[] = [];
 
+const isGuidedSessionType = (sessionTypeRaw: unknown) => {
+  const sessionType = String(sessionTypeRaw || '').toLowerCase();
+  return sessionType.includes('c25k') || sessionType.includes('run/walk') || sessionType.includes('guided');
+};
+
 if (!TaskManager.isTaskDefined(BG_TASK_NAME)) {
   TaskManager.defineTask(BG_TASK_NAME, async ({ data, error }) => {
     if (error) return;
     const locations = (data as any)?.locations || [];
     for (const l of locations) {
+      const ts = typeof l?.timestamp === 'number' ? Number(l.timestamp) : Date.now();
       BG_POINTS.push({
         latitude: l.coords.latitude,
         longitude: l.coords.longitude,
-        ts: Date.now(),
+        ts,
+        accuracy: l.coords?.accuracy ?? undefined,
+        speed: l.coords?.speed ?? undefined,
       });
     }
   });
@@ -72,6 +96,7 @@ if (!TaskManager.isTaskDefined(BG_TASK_NAME)) {
 
 export default function LiveRunScreen({
   userId,
+  isActive = true,
   backgroundMode,
   guidedCuesEnabled,
   cueDetailMode,
@@ -79,6 +104,7 @@ export default function LiveRunScreen({
   testWarmupMin,
 }: {
   userId: number;
+  isActive?: boolean;
   backgroundMode: boolean;
   guidedCuesEnabled: boolean;
   cueDetailMode: boolean;
@@ -100,8 +126,12 @@ export default function LiveRunScreen({
   const [pendingStart, setPendingStart] = useState<{ mode: SessionMode; guided: boolean } | null>(null);
   const [check, setCheck] = useState({ session_feel: '' });
   const [lastRunSummary, setLastRunSummary] = useState<RunSummary | null>(null);
+  const [postRunReview, setPostRunReview] = useState<PostRunReview | null>(null);
   const [routeCoords, setRouteCoords] = useState<Coord[]>([]);
   const [intervalPlan, setIntervalPlan] = useState<{ warmup: number; run: number; walk: number; repeats: number; cooldown: number } | null>(null);
+  const [todayPlan, setTodayPlan] = useState<MobilePlanToday | null>(null);
+  const [hasGuidedToday, setHasGuidedToday] = useState(false);
+  const [hasGuidedProgram, setHasGuidedProgram] = useState(false);
   const [diag, setDiag] = useState<string[]>([]);
   const [syncState, setSyncState] = useState<'synced' | 'syncing' | 'pending'>('synced');
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
@@ -110,6 +140,7 @@ export default function LiveRunScreen({
   const [lastCueFired, setLastCueFired] = useState('');
   const DIAG_STORAGE_KEY = 'mcl_session_diag_v1';
   const legAnim = useRef(new Animated.Value(1)).current;
+  const isPausedRef = useRef(false);
 
   const watcherRef = useRef<Location.LocationSubscription | null>(null);
   const pointsRef = useRef<Coord[]>([]);
@@ -133,6 +164,15 @@ export default function LiveRunScreen({
   const latestSessionRef = useRef<number | null>(null);
   const latestSecondsRef = useRef(0);
   const latestDistanceRef = useRef(0);
+  const watchLastElapsedSecRef = useRef(0);
+  const watchLastMessageMsRef = useRef(0);
+  const stopRequestedRef = useRef(false);
+  const stopInFlightRef = useRef(false);
+  const stopGuardUntilRef = useRef(0);
+  const ignoreWatchStartUntilRef = useRef(0);
+  const ignoreWatchMetricsUntilRef = useRef(0);
+  const watchMirrorActiveRef = useRef(false);
+  const watchBootstrapInFlightRef = useRef(false);
 
   const setSpeechAudioMode = async (enabled: boolean) => {
     if (speechAudioModeRef.current === enabled) return;
@@ -344,12 +384,12 @@ export default function LiveRunScreen({
 
   const endLiveActivity = async (sid: number | null, elapsedSec: number, meters: number) => {
     if (Platform.OS !== 'ios') return;
-    if (!sid) return;
     const mod = liveModuleRef.current;
     if (!mod?.end) return;
+    const sidValue = sid ?? latestSessionRef.current ?? 0;
     try {
       await mod.end({
-        sessionId: String(sid),
+        sessionId: sidValue > 0 ? String(sidValue) : 'unknown',
         elapsedSec,
         segmentRemainingSec: 0,
         sessionStartedAtEpoch: Date.now() / 1000 - Math.max(0, elapsedSec),
@@ -484,28 +524,55 @@ export default function LiveRunScreen({
     return issues;
   };
 
-  useEffect(() => {
-    const loadPlan = async () => {
-      try {
-        const today = await getPlanToday(userId);
-        const interval = today.interval as any;
-        if (interval && interval.run && interval.repeats) {
-          setIntervalPlan({
-            warmup: Number(interval.warmup || 5),
-            run: Number(interval.run || 1),
-            walk: Number(interval.walk || 1),
-            repeats: Number(interval.repeats || 6),
-            cooldown: Number(interval.cooldown || 5),
-          });
-        } else {
-          setIntervalPlan(null);
+  const loadPlan = async () => {
+    try {
+      const today = await getPlanToday(userId);
+      setTodayPlan(today);
+      const isGuidedTypeToday = isGuidedSessionType((today as any)?.session_type);
+      const interval = today.interval as any;
+      let guidedProgramDetected = isGuidedTypeToday;
+      if (!guidedProgramDetected) {
+        try {
+          const upcoming = await getPlanUpcoming(userId, 10, false);
+          guidedProgramDetected = (upcoming.items || []).some((w) => isGuidedSessionType((w as any)?.session_type));
+        } catch {
+          // Keep today's guided detection if upcoming lookup fails.
         }
-      } catch {
+      }
+      if (interval && interval.run && interval.repeats) {
+        setIntervalPlan({
+          warmup: Number(interval.warmup || 5),
+          run: Number(interval.run || 1),
+          walk: Number(interval.walk || 1),
+          repeats: Number(interval.repeats || 6),
+          cooldown: Number(interval.cooldown || 5),
+        });
+        setHasGuidedToday(true);
+        setHasGuidedProgram(true);
+      } else {
         setIntervalPlan(null);
+        setHasGuidedToday(isGuidedTypeToday);
+        setHasGuidedProgram(guidedProgramDetected);
+      }
+    } catch {
+      setTodayPlan(null);
+      setIntervalPlan(null);
+      setHasGuidedToday(false);
+      setHasGuidedProgram(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isActive) return;
+    const run = async () => {
+      try {
+        await loadPlan();
+      } catch {
+        // keep prior plan state on refresh failures
       }
     };
-    loadPlan();
-  }, [userId]);
+    run();
+  }, [userId, isActive]);
 
   useEffect(() => {
     const configureAudio = async () => {
@@ -580,6 +647,7 @@ export default function LiveRunScreen({
         setSpeechAudioMode(false).catch(() => null);
       } else {
         evaluateReadiness().catch(() => null);
+        sendWatchPayload({ type: 'request_state' }).catch(() => null);
       }
     });
     return () => {
@@ -607,6 +675,360 @@ export default function LiveRunScreen({
     latestSecondsRef.current = seconds;
     latestDistanceRef.current = distanceM;
   }, [sessionId, seconds, distanceM]);
+
+  useEffect(() => {
+    const toPayload = (event: any): any | null => {
+      if (!event || typeof event !== 'object') return null;
+      if (event.payload && typeof event.payload === 'object') return event.payload;
+      if (typeof event.type === 'string') return event;
+      return null;
+    };
+
+    const handleWatchEvent = (event: any) => {
+      const payload = toPayload(event);
+      if (!payload || typeof payload.type !== 'string') return;
+      const t = String(payload.type);
+      const sentAtMs = Number(payload.sentAtMs || 0);
+      if (sentAtMs > 0) {
+        // Drop delayed watch messages that arrive out of order.
+        if (sentAtMs + 1500 < watchLastMessageMsRef.current) return;
+        watchLastMessageMsRef.current = Math.max(watchLastMessageMsRef.current, sentAtMs);
+      }
+
+        if (t === 'workout_started') {
+          if (Date.now() < stopGuardUntilRef.current) return;
+          if (Date.now() < ignoreWatchStartUntilRef.current || Date.now() < ignoreWatchMetricsUntilRef.current) return;
+          if (stopRequestedRef.current) return;
+          if (startedAt) return;
+          watchMirrorActiveRef.current = true;
+          const watchMode: SessionMode = payload.mode === 'walk' ? 'walk' : 'run';
+          const guided = !!payload.guided;
+          startSession(userId)
+            .then(async (s) => {
+              setSessionId(s.id);
+              latestSessionRef.current = s.id;
+              setStartedAt(Date.now());
+              watchLastElapsedSecRef.current = 0;
+              setActiveMode(watchMode);
+              setGuidedSession(guided);
+              setLastRunSummary(null);
+              setPostRunReview(null);
+              setCheckStage('none');
+              pointsRef.current = [];
+              BG_POINTS = [];
+              setRouteCoords([]);
+              await startWatcher().catch(() => null);
+              if (backgroundMode) await startBackgroundUpdates(watchMode).catch(() => null);
+              setMsg('Watch workout started. Mirroring on phone.');
+              logDiag(`watch workout started (id ${s.id})`);
+              await startLiveActivity(s.id, 0, 0, false);
+              await persistActive();
+            })
+            .catch(() => null);
+          return;
+        }
+
+        if (t === 'workout_state') {
+          if (Date.now() < stopGuardUntilRef.current) return;
+          const running = !!payload.isRunning;
+          if (running && !startedAt && !stopRequestedRef.current && !watchBootstrapInFlightRef.current) {
+            if (Date.now() < ignoreWatchStartUntilRef.current || Date.now() < ignoreWatchMetricsUntilRef.current) return;
+            watchBootstrapInFlightRef.current = true;
+            watchMirrorActiveRef.current = true;
+            const watchMode: SessionMode = payload.mode === 'walk' ? 'walk' : 'run';
+            const guided = !!payload.guided;
+            const elapsed = Math.max(0, Number(payload.elapsedSec || 0));
+            const dist = Math.max(0, Number(payload.distanceM || 0));
+            const paused = !!payload.isPaused;
+            startSession(userId)
+              .then(async (s) => {
+                setSessionId(s.id);
+                latestSessionRef.current = s.id;
+                setStartedAt(Date.now() - elapsed * 1000);
+                const initialElapsed = Math.max(0, Math.round(elapsed));
+                watchLastElapsedSecRef.current = initialElapsed;
+                setSeconds(initialElapsed);
+                setDistanceM(dist);
+                setIsPaused(paused);
+                setActiveMode(watchMode);
+                setGuidedSession(guided);
+                setLastRunSummary(null);
+                setPostRunReview(null);
+                setCheckStage('none');
+                pointsRef.current = [];
+                BG_POINTS = [];
+                setRouteCoords([]);
+                await startWatcher().catch(() => null);
+                if (backgroundMode) await startBackgroundUpdates(watchMode).catch(() => null);
+                setMsg('Watch workout started. Mirroring on phone.');
+                logDiag(`watch state bootstrap (id ${s.id})`);
+                await startLiveActivity(s.id, elapsed, dist, paused);
+                await persistActive();
+              })
+              .catch(() => null)
+              .finally(() => {
+                watchBootstrapInFlightRef.current = false;
+              });
+            return;
+          }
+          if (!running && watchMirrorActiveRef.current && startedAt && !stopInFlightRef.current) {
+            // Treat idle watch state as authoritative end if end event was missed.
+            const sid = latestSessionRef.current;
+            if (!sid) return;
+            const dur = Math.max(1, Number(payload.elapsedSec || latestSecondsRef.current || 1));
+            const dist = Math.max(0, Number(payload.distanceM || latestDistanceRef.current || 0));
+            const mergeStats = createSegmentStats();
+            const merged = mergePoints(pointsRef.current, BG_POINTS, mergeStats);
+            const route = merged
+              .slice(0, 500)
+              .map((p) => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`)
+              .join(';');
+            const endedMode: SessionMode = payload.mode === 'walk' ? 'walk' : 'run';
+            watchMirrorActiveRef.current = false;
+            setStartedAt(null);
+            setGuidedSession(false);
+            setIsPaused(false);
+            setSeconds(0);
+            setDistanceM(0);
+            setLastCueFired('');
+            setScheduledCueCount(0);
+            setSessionId(null);
+            latestSessionRef.current = null;
+            setCheckStage('none');
+            watchLastElapsedSecRef.current = 0;
+            watchLastMessageMsRef.current = 0;
+            const endedAtMs = Date.now();
+            setLastRunSummary({ mode: endedMode, durationSec: dur, distanceM: dist, endedAtMs });
+            setPostRunReview({
+              sessionId: sid,
+              mode: endedMode,
+              durationSec: dur,
+              distanceM: dist,
+              endedAtMs,
+              route: merged,
+              writeHealth: true,
+              notes: '',
+            });
+            watcherRef.current?.remove();
+            clearCueTimers();
+            cancelCueNotifications().catch(() => null);
+            cancelAllCoachCueNotifications().catch(() => null);
+            stopNativeCuePlayback().catch(() => null);
+            stopBackgroundUpdates().catch(() => null);
+            stopSession(sid, Math.round(dist), dur, route || undefined).catch(async () => {
+              await enqueueAction('stop', sid, { distance_m: Math.round(dist), duration_s: dur, route_polyline: route || undefined });
+              await refreshSyncStatus();
+            });
+            clearActiveSession().catch(() => null);
+            endLiveActivity(sid, dur, dist).catch(() => null);
+            setSessionId(sid);
+            latestSessionRef.current = sid;
+            setMsg('Watch workout saved. Review and save check-in.');
+            setRouteCoords(merged);
+          }
+          return;
+        }
+
+        if (t === 'metrics') {
+          if (Date.now() < stopGuardUntilRef.current) return;
+          if (Date.now() < ignoreWatchMetricsUntilRef.current) return;
+          if (!watchMirrorActiveRef.current && !startedAt && !stopRequestedRef.current && !watchBootstrapInFlightRef.current) {
+            watchBootstrapInFlightRef.current = true;
+            watchMirrorActiveRef.current = true;
+            const watchMode: SessionMode = payload.mode === 'walk' ? 'walk' : 'run';
+            const guided = !!payload.guided;
+            const elapsed = Math.max(0, Number(payload.elapsedSec || 0));
+            const dist = Math.max(0, Number(payload.distanceM || 0));
+            const paused = !!payload.isPaused;
+            startSession(userId)
+              .then(async (s) => {
+                setSessionId(s.id);
+                latestSessionRef.current = s.id;
+                setStartedAt(Date.now() - elapsed * 1000);
+                const initialElapsed = Math.max(0, Math.round(elapsed));
+                watchLastElapsedSecRef.current = initialElapsed;
+                setSeconds(initialElapsed);
+                setDistanceM(dist);
+                setIsPaused(paused);
+                setActiveMode(watchMode);
+                setGuidedSession(guided);
+                setLastRunSummary(null);
+                setPostRunReview(null);
+                setCheckStage('none');
+                pointsRef.current = [];
+                BG_POINTS = [];
+                setRouteCoords([]);
+                await startWatcher().catch(() => null);
+                if (backgroundMode) await startBackgroundUpdates(watchMode).catch(() => null);
+                setMsg('Watch workout started. Mirroring on phone.');
+                logDiag(`watch metrics bootstrap (id ${s.id})`);
+                await startLiveActivity(s.id, elapsed, dist, paused);
+                await persistActive();
+              })
+              .catch(() => null)
+              .finally(() => {
+                watchBootstrapInFlightRef.current = false;
+              });
+            return;
+          }
+          if (!watchMirrorActiveRef.current) return;
+          if (stopRequestedRef.current) return;
+          if (!latestSessionRef.current) return;
+          const elapsed = Number(payload.elapsedSec || 0);
+          const dist = Number(payload.distanceM || 0);
+          const paused = !!payload.isPaused;
+          const incomingElapsed = Math.max(0, Math.round(elapsed));
+          setSeconds((prev) => {
+            const nextElapsed = Math.max(prev, incomingElapsed, watchLastElapsedSecRef.current);
+            watchLastElapsedSecRef.current = nextElapsed;
+            return nextElapsed;
+          });
+          setDistanceM(Math.max(0, dist));
+          setIsPaused(paused);
+          if (!startedAt) {
+            setStartedAt(Date.now() - Math.max(0, elapsed) * 1000);
+          }
+          return;
+        }
+
+        if (t === 'workout_ended') {
+          stopGuardUntilRef.current = 0;
+          if (stopInFlightRef.current || stopRequestedRef.current) {
+            watchMirrorActiveRef.current = false;
+            return;
+          }
+          watchMirrorActiveRef.current = false;
+          const sid = latestSessionRef.current;
+          if (!sid) {
+            // If watch ends but phone has already lost session id, still force local UI out of running state.
+            setStartedAt(null);
+            setGuidedSession(false);
+            setIsPaused(false);
+            setSeconds(0);
+            setDistanceM(0);
+            setLastCueFired('');
+            setScheduledCueCount(0);
+            setMsg('Watch workout ended.');
+            watcherRef.current?.remove();
+            clearCueTimers();
+            cancelCueNotifications().catch(() => null);
+            cancelAllCoachCueNotifications().catch(() => null);
+            stopNativeCuePlayback().catch(() => null);
+            stopBackgroundUpdates().catch(() => null);
+            endLiveActivity(null, latestSecondsRef.current, latestDistanceRef.current).catch(() => null);
+            watchLastElapsedSecRef.current = 0;
+            watchLastMessageMsRef.current = 0;
+            stopRequestedRef.current = false;
+            stopInFlightRef.current = false;
+            setIsStopping(false);
+            return;
+          }
+          const dur = Math.max(1, Number(payload.elapsedSec || latestSecondsRef.current || 1));
+          const dist = Math.max(0, Number(payload.distanceM || latestDistanceRef.current || 0));
+          const mergeStats = createSegmentStats();
+          const merged = mergePoints(pointsRef.current, BG_POINTS, mergeStats);
+          const route = merged
+            .slice(0, 500)
+            .map((p) => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`)
+            .join(';');
+          const endedMode: SessionMode = payload.mode === 'walk' ? 'walk' : 'run';
+          const endedBy = String(payload.source || 'watch');
+
+          (async () => {
+            // Optimistic local stop so UI never appears "stuck running" while network sync finishes.
+            setStartedAt(null);
+            setGuidedSession(false);
+            setIsPaused(false);
+            setSeconds(0);
+            setDistanceM(0);
+            setLastCueFired('');
+            setScheduledCueCount(0);
+            setSessionId(null);
+            latestSessionRef.current = null;
+            setCheckStage('none');
+            const endedAtMs = Date.now();
+            setLastRunSummary({
+              mode: endedMode,
+              durationSec: dur,
+              distanceM: dist,
+              endedAtMs,
+            });
+            if (endedBy === 'watch') {
+              setPostRunReview(null);
+            } else {
+              setPostRunReview({
+                sessionId: sid,
+                mode: endedMode,
+                durationSec: dur,
+                distanceM: dist,
+                endedAtMs,
+                route: merged,
+                writeHealth: true,
+                notes: '',
+              });
+            }
+            setMsg('Watch workout ended. Saving...');
+            logDiag(`watch workout ended (${Math.round(dist)}m in ${dur}s)`);
+            watcherRef.current?.remove();
+            clearCueTimers();
+            await cancelCueNotifications();
+            await cancelAllCoachCueNotifications();
+            await stopNativeCuePlayback();
+            await stopBackgroundUpdates();
+
+            try {
+              await stopSession(sid, Math.round(dist), dur, route || undefined);
+            } catch {
+              await enqueueAction('stop', sid, { distance_m: Math.round(dist), duration_s: dur, route_polyline: route || undefined });
+              await refreshSyncStatus();
+            }
+            await clearActiveSession();
+            await endLiveActivity(sid, dur, dist);
+            setRouteCoords(merged);
+            setSessionId(sid);
+            latestSessionRef.current = sid;
+            setCheckStage('none');
+            setMsg(endedBy === 'watch' ? 'Watch workout saved.' : 'Watch workout saved. Review and save check-in.');
+            watchLastElapsedSecRef.current = 0;
+            watchLastMessageMsRef.current = 0;
+            stopRequestedRef.current = false;
+            stopInFlightRef.current = false;
+            setIsStopping(false);
+          })().catch(() => null);
+          return;
+        }
+
+        if (t === 'workout_review') {
+          const feelEmoji = String(payload.feel || '');
+          const feelMap: Record<string, FeelValue> = {
+            '😄': 'very_easy',
+            '🙂': 'easy',
+            '😐': 'moderate',
+            '😮': 'hard',
+            '🥵': 'very_hard',
+          };
+          const feel = feelMap[feelEmoji];
+          if (feel) {
+            setPostRunReview((prev) => (prev ? { ...prev, feel } : prev));
+            setLastRunSummary((prev) => (prev ? { ...prev, feel } : prev));
+            setMsg('Watch check-in captured.');
+          }
+          return;
+        }
+
+        if (t === 'workout_review_discarded') {
+          setMsg('Watch check-in discarded.');
+          return;
+        }
+    };
+
+    const unsub = subscribeWatchEvents(() => {}, handleWatchEvent);
+    drainPendingWatchEvents()
+      .then((queued) => queued.forEach(handleWatchEvent))
+      .catch(() => null);
+    sendWatchPayload({ type: 'request_state' }).catch(() => null);
+    return () => unsub();
+  }, [activeMode, startedAt, userId, backgroundMode]);
 
   useEffect(() => {
     return () => {
@@ -686,6 +1108,10 @@ export default function LiveRunScreen({
   }, [userId]);
 
   useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
+
+  useEffect(() => {
     if (!sessionId || !startedAt) return;
     updateLiveActivity(sessionId, seconds, distanceM, isPaused).catch(() => null);
   }, [sessionId, startedAt, seconds, distanceM, isPaused]);
@@ -705,7 +1131,6 @@ export default function LiveRunScreen({
       const gapMs = Date.now() - lastPointTsRef.current;
       if (gapMs > 20000 && !stalledWarnedRef.current) {
         stalledWarnedRef.current = true;
-        setMsg('GPS signal paused. Keep app open and location on; tracking will resume automatically.');
         logDiag('gps stalled >20s');
       }
     }, 5000);
@@ -757,6 +1182,28 @@ export default function LiveRunScreen({
     }
     return Math.max(0, Math.min(1, liveSeg.blockProgress || 0));
   }, [countdownSec, liveSeg.blockProgress]);
+  const todayPlanSummary = useMemo(() => {
+    const todayType = String(todayPlan?.session_type || '').toLowerCase();
+    if (todayType === 'rest') {
+      return 'Rest day. No structured workout planned.';
+    }
+    if (intervalPlan && intervalPlan.repeats > 0 && intervalPlan.run > 0) {
+      return `Warm-up ${intervalPlan.warmup}m • ${intervalPlan.repeats} x (${intervalPlan.run}m run + ${intervalPlan.walk}m walk) • Cool-down ${intervalPlan.cooldown}m`;
+    }
+    if (hasGuidedToday || guidedSession) {
+      return 'Guided run/walk session with audio cues.';
+    }
+    return 'Steady run or walk at a comfortable effort.';
+  }, [todayPlan?.session_type, intervalPlan, guidedSession, hasGuidedToday]);
+  const todayPlanStatus = useMemo(() => {
+    const todayType = String(todayPlan?.session_type || '').toLowerCase();
+    if (!startedAt && todayType === 'rest') return '';
+    if (!startedAt) return 'Not started yet.';
+    if (countdownSec !== null) return `Starting in ${countdownSec}s`;
+    if (isPaused) return 'Paused';
+    if (guidedSession || hasGuidedToday) return `${legLabel} • ${legRemaining} left`;
+    return `${activeMode === 'walk' ? 'Walking' : 'Running'} • ${elapsed} in motion`;
+  }, [todayPlan?.session_type, startedAt, countdownSec, isPaused, guidedSession, hasGuidedToday, legLabel, legRemaining, activeMode, elapsed]);
   const ringSize = useMemo(() => Math.max(208, Math.min(288, width - 92)), [width]);
   const ringStroke = ringSize < 235 ? 10 : 12;
 
@@ -776,19 +1223,19 @@ export default function LiveRunScreen({
     return true;
   };
 
-  const startBackgroundUpdates = async () => {
+  const startBackgroundUpdates = async (mode?: SessionMode) => {
     if (!backgroundMode) return;
-    const bg = await Location.requestBackgroundPermissionsAsync();
+    const bg = await Location.getBackgroundPermissionsAsync();
     if (bg.status !== 'granted') {
-      setMsg('Background location not granted. Continuing in foreground mode.');
       return;
     }
     const started = await Location.hasStartedLocationUpdatesAsync(BG_TASK_NAME);
     if (!started) {
+      const trackingAccuracy = mode === 'walk' ? Location.Accuracy.BestForNavigation : Location.Accuracy.High;
       await Location.startLocationUpdatesAsync(BG_TASK_NAME, {
-        accuracy: Location.Accuracy.Balanced,
-        timeInterval: 5000,
-        distanceInterval: 10,
+        accuracy: trackingAccuracy,
+        timeInterval: 3000,
+        distanceInterval: 3,
         pausesUpdatesAutomatically: false,
         foregroundService: {
           notificationTitle: 'Motion Coach run in progress',
@@ -796,6 +1243,41 @@ export default function LiveRunScreen({
         },
       });
     }
+  };
+
+  const ensureBackgroundTrackingPermission = async (): Promise<boolean> => {
+    if (!backgroundMode) return false;
+    try {
+      const bg = await Location.getBackgroundPermissionsAsync();
+      if (bg.status === 'granted') return true;
+    } catch {
+      // Fall through to optional request.
+    }
+
+    const choice = await new Promise<'enable' | 'skip'>((resolve) => {
+      Alert.alert(
+        'Keep tracking when phone is locked?',
+        'Allow "Always Allow" location to keep run tracking when your phone is locked or you switch apps. You can continue without this.',
+        [
+          { text: 'Not now', style: 'cancel', onPress: () => resolve('skip') },
+          { text: 'Enable', onPress: () => resolve('enable') },
+        ]
+      );
+    });
+
+    if (choice !== 'enable') {
+      setMsg('Foreground tracking on. Enable Always Allow later for locked-screen tracking.');
+      return false;
+    }
+
+    try {
+      const bg = await Location.requestBackgroundPermissionsAsync();
+      if (bg.status === 'granted') return true;
+    } catch {
+      // Continue in foreground mode if request fails.
+    }
+    setMsg('Background location not granted. Continuing in foreground mode.');
+    return false;
   };
 
   const stopBackgroundUpdates = async () => {
@@ -816,11 +1298,11 @@ export default function LiveRunScreen({
         distanceInterval: 3,
       },
       (loc) => {
-        if (isPaused) return;
+        if (isPausedRef.current) return;
         const p: Coord = {
           latitude: loc.coords.latitude,
           longitude: loc.coords.longitude,
-          ts: Date.now(),
+          ts: typeof loc.timestamp === 'number' ? Number(loc.timestamp) : Date.now(),
           accuracy: loc.coords.accuracy ?? undefined,
           speed: loc.coords.speed ?? undefined,
         };
@@ -829,7 +1311,6 @@ export default function LiveRunScreen({
         lastPointTsRef.current = p.ts;
         if (stalledWarnedRef.current) {
           stalledWarnedRef.current = false;
-          setMsg('GPS signal restored.');
           logDiag('gps restored');
         }
         setRouteCoords([...pointsRef.current]);
@@ -1087,8 +1568,50 @@ export default function LiveRunScreen({
     await startNativeCuePlayback(0);
   };
 
-  const beginStartCountdown = (params: { mode: SessionMode; guided: boolean }) => {
+  const autoSavePendingReview = async () => {
+    const review = postRunReview;
+    if (!review) return;
+    const finalFeel: FeelValue = review.feel || 'moderate';
+    const resolved = { ...review, feel: finalFeel };
+    if (resolved.writeHealth) {
+      await writeWorkoutToHealth(resolved.mode, resolved.durationSec, resolved.distanceM);
+    }
+    const sid = resolved.sessionId || sessionId;
+    if (sid) {
+      const mapped = FEEL_MAP[resolved.feel];
+      const payload = {
+        effort: mapped.effort,
+        fatigue: mapped.fatigue,
+        pain: mapped.pain,
+        session_feel: mapped.session_feel,
+        notes: resolved.notes?.trim() || mapped.note,
+      };
+      try {
+        await checkinSession(sid, payload);
+        if (resolved.runId) {
+          await cacheCheckinNoteForRun(resolved.runId, payload.notes);
+        }
+      } catch {
+        await enqueueAction('checkin', sid, payload);
+        if (resolved.runId) {
+          await cacheCheckinNoteForRun(resolved.runId, payload.notes);
+        }
+        await refreshSyncStatus();
+      }
+    }
+    setLastRunSummary((prev) => (prev ? { ...prev, feel: finalFeel } : prev));
+    setPostRunReview(null);
+    setCheck({ session_feel: '' });
+    setSessionId(null);
+    setCheckStage('done');
+    setMsg('Previous activity auto-saved.');
+  };
+
+  const beginStartCountdown = async (params: { mode: SessionMode; guided: boolean }) => {
     if (startedAt || countdownSec !== null) return;
+    if (postRunReview) {
+      await autoSavePendingReview();
+    }
     setPendingStart(params);
     setCountdownSec(START_COUNTDOWN_SEC);
     setMsg('');
@@ -1115,16 +1638,7 @@ export default function LiveRunScreen({
 
   const startSessionFlow = async ({ mode, guided }: { mode: SessionMode; guided: boolean }) => {
     if (!(await requestLocation())) return;
-    if (backgroundMode) {
-      try {
-        const bg = await Location.requestBackgroundPermissionsAsync();
-        if (bg.status !== 'granted') {
-          setMsg('Background location not granted. Continuing in foreground mode.');
-        }
-      } catch {
-        // Continue in foreground mode.
-      }
-    }
+    const backgroundTrackingEnabled = await ensureBackgroundTrackingPermission();
     const issues = await evaluateReadiness();
     const blocking = issues.filter((i) => i.toLowerCase().includes('notification'));
     if (blocking.length) {
@@ -1132,10 +1646,13 @@ export default function LiveRunScreen({
       return;
     }
     try {
+      watchMirrorActiveRef.current = false;
       const s = await startSession(userId);
+      const startEpoch = Date.now() / 1000;
       setIsStopping(false);
       setSessionId(s.id);
-      setStartedAt(Date.now());
+      setStartedAt(Math.round(startEpoch * 1000));
+      watchLastElapsedSecRef.current = 0;
       setActiveMode(mode);
       setGuidedSession(guided);
       setLastRunSummary(null);
@@ -1154,10 +1671,17 @@ export default function LiveRunScreen({
       await cancelAllCoachCueNotifications();
       await stopNativeCuePlayback();
       await startWatcher();
-      await startBackgroundUpdates();
+      if (backgroundTrackingEnabled) {
+        await startBackgroundUpdates(mode);
+      }
       logDiag(`session started (id ${s.id})`);
-      setMsg(backgroundMode ? 'Session started. GPS + background tracking on.' : 'Session started. GPS tracking on.');
+      setMsg('');
       await sendEvent(s.id, 'start');
+      await sendWatchPayload({
+        type: guided ? 'start_guided' : mode === 'walk' ? 'start_walk' : 'start_run',
+        skipCountdown: true,
+        startedAtEpoch: startEpoch,
+      }).catch(() => null);
       if (guided) {
         await scheduleCues(s.id);
       } else {
@@ -1172,17 +1696,20 @@ export default function LiveRunScreen({
     }
   };
 
-  const onStartWalk = () => beginStartCountdown({ mode: 'walk', guided: false });
+  const onStartWalk = () => {
+    beginStartCountdown({ mode: 'walk', guided: false }).catch(() => null);
+  };
 
   const onStartRun = () => {
-    const hasGuidedPlan = !!intervalPlan && intervalPlan.repeats > 0 && intervalPlan.run > 0;
+    const hasGuidedInterval = !!intervalPlan && intervalPlan.repeats > 0 && intervalPlan.run > 0;
+    const hasGuidedPlan = hasGuidedInterval || hasGuidedProgram;
     if (!guidedCuesEnabled || !hasGuidedPlan) {
-      beginStartCountdown({ mode: 'run', guided: false });
+      beginStartCountdown({ mode: 'run', guided: false }).catch(() => null);
       return;
     }
     Alert.alert('Guided run today?', 'Do you want interval voice guidance for this run?', [
-      { text: 'No', style: 'cancel', onPress: () => beginStartCountdown({ mode: 'run', guided: false }) },
-      { text: 'Yes', onPress: () => beginStartCountdown({ mode: 'run', guided: true }) },
+      { text: 'No', style: 'cancel', onPress: () => beginStartCountdown({ mode: 'run', guided: false }).catch(() => null) },
+      { text: 'Yes', onPress: () => beginStartCountdown({ mode: 'run', guided: true }).catch(() => null) },
     ]);
   };
 
@@ -1199,6 +1726,7 @@ export default function LiveRunScreen({
       try {
         await sendEvent(sessionId, 'pause');
       } catch {}
+      await sendWatchPayload({ type: 'pause' }).catch(() => null);
       await updateLiveActivity(sessionId, seconds, distanceM, true);
       await persistActive();
       return;
@@ -1213,6 +1741,7 @@ export default function LiveRunScreen({
     try {
       await sendEvent(sessionId, 'resume');
     } catch {}
+    await sendWatchPayload({ type: 'resume' }).catch(() => null);
     await updateLiveActivity(sessionId, seconds, distanceM, false);
     await scheduleCueNotificationsFromElapsed(seconds);
     await startNativeCuePlayback(seconds);
@@ -1220,9 +1749,60 @@ export default function LiveRunScreen({
   };
 
   const onStop = async () => {
-    if (isStopping) return;
-    if (!sessionId) return;
+    if (isStopping || stopInFlightRef.current) return;
+    stopInFlightRef.current = true;
     setIsStopping(true);
+    stopRequestedRef.current = true;
+    stopGuardUntilRef.current = Date.now() + 20000;
+
+    const stoppedMode = activeMode;
+    const stoppedDuration = Math.max(1, seconds);
+    const currentDistance = Math.max(0, distanceM);
+    let sid = sessionId || latestSessionRef.current;
+    if (!sid) {
+      const active = await loadActiveSession(userId);
+      sid = active?.sessionId || null;
+    }
+    if (!sid) {
+      // No backend session id means we cannot save/check-in safely.
+      setStartedAt(null);
+      setGuidedSession(false);
+      setIsPaused(false);
+      setSeconds(0);
+      setDistanceM(0);
+      setLastCueFired('');
+      setScheduledCueCount(0);
+      setSessionId(null);
+      latestSessionRef.current = null;
+      setCheckStage('none');
+      setLastRunSummary(null);
+      setMsg('Stopped local run state (no active session id).');
+      stopRequestedRef.current = false;
+      stopInFlightRef.current = false;
+      setIsStopping(false);
+      return;
+    }
+
+    // First-tap stop: immediately stop local UI and stop watch mirroring.
+    watchMirrorActiveRef.current = false;
+    setStartedAt(null);
+    setGuidedSession(false);
+    setIsPaused(false);
+    setSeconds(0);
+    setDistanceM(0);
+    setLastCueFired('');
+    setScheduledCueCount(0);
+    setCheckStage('none');
+    setLastRunSummary(null);
+    setPostRunReview(null);
+    setMsg('Stopping run...');
+    ignoreWatchStartUntilRef.current = Date.now() + 10000;
+    ignoreWatchMetricsUntilRef.current = Date.now() + 10000;
+    await sendWatchPayload({ type: 'end' }).catch(() => null);
+    setTimeout(() => {
+      sendWatchPayload({ type: 'end' }).catch(() => null);
+    }, 700);
+
     try {
       watcherRef.current?.remove();
       clearCueTimers();
@@ -1231,9 +1811,11 @@ export default function LiveRunScreen({
       await stopNativeCuePlayback();
       await stopBackgroundUpdates();
 
-      const merged = mergePoints(pointsRef.current, BG_POINTS);
-      const mergedDistance = computeDistance(merged);
-      const durationSec = Math.max(1, seconds);
+      const mergeStats = createSegmentStats();
+      const merged = mergePoints(pointsRef.current, BG_POINTS, mergeStats);
+      const distanceStats = createSegmentStats();
+      const mergedDistance = computeDistance(merged, distanceStats);
+      const durationSec = stoppedDuration;
       const route = merged
         .slice(0, 500)
         .map((p) => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`)
@@ -1241,40 +1823,59 @@ export default function LiveRunScreen({
 
       setDistanceM(mergedDistance);
       setRouteCoords(merged);
-      logDiag(`stopped: ${Math.round(mergedDistance)}m in ${seconds}s, points=${merged.length}`);
+      logDiag(
+        `stopped: ${Math.round(mergedDistance)}m in ${seconds}s, points=${merged.length}, kept=${distanceStats.kept}, droppedTiny=${distanceStats.droppedTiny}, droppedFast=${distanceStats.droppedFastJump}, droppedHuge=${distanceStats.droppedHugeJump}, mergeDrops=${mergeStats.droppedTiny + mergeStats.droppedFastJump + mergeStats.droppedHugeJump}`
+      );
       const stopPayload = { distance_m: Math.round(mergedDistance), duration_s: durationSec, route_polyline: route || undefined };
+      let stoppedRunId: number | null = null;
       try {
-        await stopSession(sessionId, stopPayload.distance_m, stopPayload.duration_s, stopPayload.route_polyline);
+        const stopRes = await stopSession(sid, stopPayload.distance_m, stopPayload.duration_s, stopPayload.route_polyline);
+        stoppedRunId = Number(stopRes?.run_id || 0) || null;
       } catch {
-        await enqueueAction('stop', sessionId, stopPayload);
+        await enqueueAction('stop', sid, stopPayload);
         await refreshSyncStatus();
         logDiag('stop queued for sync');
       }
       await clearActiveSession();
-      await endLiveActivity(sessionId, durationSec, mergedDistance);
-      await writeWorkoutToHealth(activeMode, durationSec, mergedDistance);
+      await endLiveActivity(sid, durationSec, mergedDistance);
       if (!guidedSession) {
-        await playLocalCue(activeMode === 'walk' ? 'cue_walk_end' : 'cue_run_end');
+        await playLocalCue(stoppedMode === 'walk' ? 'cue_walk_end' : 'cue_run_end');
         Vibration.vibrate(120);
       }
-      setStartedAt(null);
-      setGuidedSession(false);
-      setIsPaused(false);
       setSeconds(0);
       setDistanceM(0);
-      setLastCueFired('');
-      setScheduledCueCount(0);
-      setMsg('Run saved. Quick check-in.');
-      setCheckStage('feel');
+      setMsg('Run saved. Review and save check-in.');
+      setCheckStage('none');
+      setSessionId(sid);
+      latestSessionRef.current = sid;
+      const endedAtMs = Date.now();
       setLastRunSummary({
-        mode: activeMode,
+        mode: stoppedMode,
         durationSec,
         distanceM: mergedDistance,
-        endedAtMs: Date.now(),
+        endedAtMs,
+      });
+      setPostRunReview({
+        sessionId: sid,
+        runId: stoppedRunId,
+        mode: stoppedMode,
+        durationSec,
+        distanceM: mergedDistance,
+        endedAtMs,
+        route: merged,
+        writeHealth: true,
+        notes: '',
       });
     } catch (e: any) {
       setMsg(e?.message || 'Stop failed');
     } finally {
+      setTimeout(() => {
+        stopRequestedRef.current = false;
+      }, 5000);
+      setTimeout(() => {
+        stopGuardUntilRef.current = 0;
+      }, 20000);
+      stopInFlightRef.current = false;
       setIsStopping(false);
     }
   };
@@ -1288,47 +1889,170 @@ export default function LiveRunScreen({
   };
 
   const submitFeelCheckin = async (feel: FeelValue) => {
-    if (!sessionId) return;
-    const mapped = FEEL_MAP[feel];
+    setCheck({ session_feel: feel });
+    setPostRunReview((prev) => (prev ? { ...prev, feel } : prev));
+  };
+
+  const onDiscardPostRun = () => {
+    setPostRunReview(null);
+    setCheck({ session_feel: '' });
+    setSessionId(null);
+    setCheckStage('done');
+    setMsg('Post-run review discarded.');
+  };
+
+  const onSavePostRun = async () => {
+    const review = postRunReview;
+    if (!review) return;
+    const finalFeel: FeelValue = review.feel || 'moderate';
+
+    if (review.writeHealth) {
+      await writeWorkoutToHealth(review.mode, review.durationSec, review.distanceM);
+    }
+
+    const sid = review.sessionId || sessionId;
+    if (!sid) {
+      setLastRunSummary((prev) => (prev ? { ...prev, feel: finalFeel } : prev));
+      setPostRunReview(null);
+      setCheck({ session_feel: '' });
+      setSessionId(null);
+      setCheckStage('done');
+      setMsg('Run saved.');
+      return;
+    }
+
+    const mapped = FEEL_MAP[finalFeel];
     const payload = {
       effort: mapped.effort,
       fatigue: mapped.fatigue,
       pain: mapped.pain,
       session_feel: mapped.session_feel,
-      notes: mapped.note,
+      notes: review.notes?.trim() || mapped.note,
     };
     try {
-      const res = await checkinSession(sessionId, payload);
-      setCheckStage('done');
-      setMsg('Check-in saved.');
-      setLastRunSummary((prev) => (prev ? { ...prev, feel } : prev));
-      setSessionId(null);
+      await checkinSession(sid, payload);
+      if (review.runId) {
+        await cacheCheckinNoteForRun(review.runId, payload.notes);
+      }
+      setLastRunSummary((prev) => (prev ? { ...prev, feel: finalFeel } : prev));
+      setPostRunReview(null);
       setCheck({ session_feel: '' });
+      setSessionId(null);
+      setCheckStage('done');
+      setMsg('Run and check-in saved.');
       await clearActiveSession();
     } catch (e: any) {
       try {
-        await enqueueAction('checkin', sessionId, payload);
+        await enqueueAction('checkin', sid, payload);
+        if (review.runId) {
+          await cacheCheckinNoteForRun(review.runId, payload.notes);
+        }
         await refreshSyncStatus();
-        setCheckStage('done');
-        setMsg('Check-in saved locally. Will sync when network is available.');
-        setLastRunSummary((prev) => (prev ? { ...prev, feel } : prev));
-        setSessionId(null);
+        setLastRunSummary((prev) => (prev ? { ...prev, feel: finalFeel } : prev));
+        setPostRunReview(null);
         setCheck({ session_feel: '' });
+        setSessionId(null);
+        setCheckStage('done');
+        setMsg('Run saved. Check-in queued for sync.');
       } catch {
         setMsg(e?.message || 'Check-in failed');
       }
     }
   };
 
-  const region = useMemo(() => buildRegion(routeCoords), [routeCoords]);
+  const previewRoute = postRunReview?.route?.length ? postRunReview.route : routeCoords;
+  const region = useMemo(() => buildRegion(previewRoute), [previewRoute]);
+
+  if (postRunReview) {
+    return (
+      <ScrollView style={styles.wrap} contentContainerStyle={styles.wrapContent}>
+        <View style={styles.card}>
+          <Text style={styles.h2}>Post activity review</Text>
+          <Text style={styles.summaryMeta}>
+            {postRunReview.mode === 'walk' ? 'Walk' : 'Run'} · {new Date(postRunReview.endedAtMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+          </Text>
+          <View style={styles.metricRow}>
+            <MetricItem label="Time in motion" value={formatDuration(postRunReview.durationSec)} />
+            <MetricItem label="Distance" value={formatDistance(postRunReview.distanceM)} />
+            <MetricItem label="Pace" value={formatPace(postRunReview.durationSec, postRunReview.distanceM)} noDivider />
+          </View>
+          {region && previewRoute.length >= 2 ? (
+            <MapView style={styles.summaryMap} initialRegion={region}>
+              <Polyline
+                coordinates={previewRoute.map((p) => ({ latitude: p.latitude, longitude: p.longitude }))}
+                strokeWidth={4}
+                strokeColor={theme.colors.accent}
+              />
+            </MapView>
+          ) : null}
+
+          <Text style={[styles.h2, { marginTop: 10 }]}>How hard did that feel?</Text>
+          <View style={styles.emojiRow}>
+            {[
+              { icon: '😄', value: 'very_easy' as const },
+              { icon: '🙂', value: 'easy' as const },
+              { icon: '😐', value: 'moderate' as const },
+              { icon: '😮', value: 'hard' as const },
+              { icon: '🥵', value: 'very_hard' as const },
+            ].map((option) => (
+              <Pressable
+                key={option.value}
+                style={[styles.emojiBtn, postRunReview.feel === option.value && styles.emojiBtnOn]}
+                onPress={() => submitFeelCheckin(option.value)}
+              >
+                <Text style={styles.emojiIcon}>{option.icon}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.scaleLegendRow}>
+            <Text style={styles.scaleLegendText}>Easy</Text>
+            <View style={styles.scaleLegendLine} />
+            <Text style={styles.scaleLegendText}>Hard</Text>
+          </View>
+          <TextInput
+            style={styles.notesInput}
+            placeholder="Activity notes (optional)"
+            placeholderTextColor={theme.colors.textMuted}
+            value={postRunReview.notes}
+            onChangeText={(v) => setPostRunReview((prev) => (prev ? { ...prev, notes: v } : prev))}
+            multiline
+          />
+          <View style={styles.reviewToggleRow}>
+            <Text style={styles.metricLabel}>Write to Apple Health</Text>
+            <Pressable
+              style={[styles.pillButton, postRunReview.writeHealth ? styles.pillButtonOn : styles.pillButtonOff]}
+              onPress={() => setPostRunReview((prev) => (prev ? { ...prev, writeHealth: !prev.writeHealth } : prev))}
+            >
+              <Text style={[styles.pillButtonText, postRunReview.writeHealth ? styles.pillButtonTextOn : styles.pillButtonTextOff]}>
+                {postRunReview.writeHealth ? 'On' : 'Off'}
+              </Text>
+            </Pressable>
+          </View>
+          <View style={styles.row}>
+            <Pressable style={styles.smallBtn} onPress={onDiscardPostRun}>
+              <Text style={styles.smallBtnText}>Discard</Text>
+            </Pressable>
+            <Pressable style={styles.stop} onPress={onSavePostRun}>
+              <Text style={styles.primaryText}>Save</Text>
+            </Pressable>
+          </View>
+        </View>
+        {msg ? <Text style={styles.msg}>{msg}</Text> : null}
+      </ScrollView>
+    );
+  }
 
   return (
     <ScrollView style={styles.wrap} contentContainerStyle={styles.wrapContent}>
       <View style={styles.card}>
         <View style={styles.runHeaderRow}>
-          <Text style={styles.h1}>Run</Text>
-          <Text style={styles.meta}>Sync: {syncState}{pendingSyncCount ? ` (${pendingSyncCount})` : ''}</Text>
+          <Text style={styles.h1}>{startedAt ? 'Session in progress' : 'Ready to move?'}</Text>
         </View>
+        {!startedAt ? (
+          <Text style={styles.runIntro}>Choose run or walk, then press start. We handle the rest.</Text>
+        ) : (
+          <Text style={styles.runIntro}>Keep going. We are tracking your time, distance, and pace.</Text>
+        )}
 
         <View style={styles.ringWrap}>
           <RingProgress
@@ -1356,7 +2080,6 @@ export default function LiveRunScreen({
           <MetricItem label="Distance" value={distanceLabel} />
           <MetricItem label="Pace" value={pace} noDivider />
         </View>
-        {__DEV__ ? <Text style={styles.meta}>Last cue: {lastCueFired || '-'} • Scheduled: {scheduledCueCount}</Text> : null}
 
         {!startedAt ? (
           <View style={styles.centerActionWrap}>
@@ -1380,37 +2103,13 @@ export default function LiveRunScreen({
           </View>
         )}
       </View>
-
-      {checkStage === 'feel' ? (
-        <View style={styles.card}>
-          <Text style={styles.h2}>How hard did that feel?</Text>
-          <View style={styles.emojiRow}>
-            {[
-              { icon: '😄', value: 'very_easy' as const },
-              { icon: '🙂', value: 'easy' as const },
-              { icon: '😐', value: 'moderate' as const },
-              { icon: '😮', value: 'hard' as const },
-              { icon: '🥵', value: 'very_hard' as const },
-            ].map((option) => (
-              <Pressable
-                key={option.value}
-                style={[styles.emojiBtn, check.session_feel === option.value && styles.emojiBtnOn]}
-                onPress={async () => {
-                  setCheck({ session_feel: option.value });
-                  await submitFeelCheckin(option.value);
-                }}
-              >
-                <Text style={styles.emojiIcon}>{option.icon}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <View style={styles.scaleLegendRow}>
-            <Text style={styles.scaleLegendText}>Easy</Text>
-            <View style={styles.scaleLegendLine} />
-            <Text style={styles.scaleLegendText}>Hard</Text>
-          </View>
+      <View style={styles.card}>
+        <View style={styles.todayPlanBox}>
+          <Text style={styles.todayPlanTitle}>Today's activity</Text>
+          <Text style={styles.todayPlanSummary}>{todayPlanSummary}</Text>
+          {todayPlanStatus ? <Text style={styles.todayPlanStatus}>Now: {todayPlanStatus}</Text> : null}
         </View>
-      ) : null}
+      </View>
 
       {lastRunSummary && !startedAt ? (
         <View style={styles.card}>
@@ -1527,7 +2226,18 @@ function RingProgress({ progress, size, stroke }: { progress: number; size: numb
   );
 }
 
-function mergePoints(fg: Coord[], bg: Coord[]): Coord[] {
+type SegmentStats = {
+  droppedTiny: number;
+  droppedFastJump: number;
+  droppedHugeJump: number;
+  kept: number;
+};
+
+function createSegmentStats(): SegmentStats {
+  return { droppedTiny: 0, droppedFastJump: 0, droppedHugeJump: 0, kept: 0 };
+}
+
+function mergePoints(fg: Coord[], bg: Coord[], stats?: SegmentStats): Coord[] {
   const all = [...fg, ...bg];
   all.sort((a, b) => a.ts - b.ts);
   const out: Coord[] = [];
@@ -1538,7 +2248,7 @@ function mergePoints(fg: Coord[], bg: Coord[]): Coord[] {
       last = p;
       continue;
     }
-    const d = segmentMeters(last, p);
+    const d = segmentMeters(last, p, stats);
     if (d > 0) {
       out.push(p);
       last = p;
@@ -1547,18 +2257,21 @@ function mergePoints(fg: Coord[], bg: Coord[]): Coord[] {
   return out;
 }
 
-function computeDistance(points: Coord[]): number {
+function computeDistance(points: Coord[], stats?: SegmentStats): number {
   if (points.length < 2) return 0;
   let d = 0;
   for (let i = 1; i < points.length; i += 1) {
-    d += segmentMeters(points[i - 1], points[i]);
+    d += segmentMeters(points[i - 1], points[i], stats);
   }
   return d;
 }
 
-function segmentMeters(prev: Coord, next: Coord): number {
+function segmentMeters(prev: Coord, next: Coord, stats?: SegmentStats): number {
   const d = haversineMeters(prev.latitude, prev.longitude, next.latitude, next.longitude);
-  if (d < 0.7) return 0;
+  if (d < 0.7) {
+    if (stats) stats.droppedTiny += 1;
+    return 0;
+  }
   const dt = Math.max(1, (next.ts - prev.ts) / 1000);
   const speed = d / dt;
   const pSpeed = prev.speed && prev.speed > 0 ? prev.speed : 0;
@@ -1567,8 +2280,15 @@ function segmentMeters(prev: Coord, next: Coord): number {
   const acc = Math.max(prev.accuracy || 15, next.accuracy || 15);
 
   // Reject jumps that are too fast for running and exceed GPS uncertainty.
-  if (speed > expectedMax && d > acc * 3) return 0;
-  if (d > 250 && speed > 8) return 0;
+  if (speed > expectedMax && d > acc * 3) {
+    if (stats) stats.droppedFastJump += 1;
+    return 0;
+  }
+  if (d > 250 && speed > 8) {
+    if (stats) stats.droppedHugeJump += 1;
+    return 0;
+  }
+  if (stats) stats.kept += 1;
   return d;
 }
 
@@ -1638,6 +2358,13 @@ const styles = StyleSheet.create({
   h2: { fontSize: 16, fontWeight: '700', color: theme.colors.text },
   p: { color: theme.colors.text },
   runHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  runIntro: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },
+  todayPlanBox: {
+    gap: 4,
+  },
+  todayPlanTitle: { color: theme.colors.text, fontSize: 13, fontWeight: '800' },
+  todayPlanSummary: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 17, fontWeight: '600' },
+  todayPlanStatus: { color: theme.colors.text, fontSize: 12, fontWeight: '700' },
   ringWrap: { alignSelf: 'center', marginTop: 2, marginBottom: 4 },
   ringCenter: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   legLabel: { color: theme.colors.textMuted, fontWeight: '700', fontSize: 14 },
@@ -1762,9 +2489,9 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#b8d8f3',
+    borderColor: theme.colors.accent,
   },
-  syncBtnText: { color: '#0f4e7f', fontWeight: '700', fontSize: 12 },
+  syncBtnText: { color: theme.colors.accent, fontWeight: '700', fontSize: 12 },
   diagCard: {
     backgroundColor: theme.colors.surface,
     borderRadius: 12,
@@ -1785,4 +2512,47 @@ const styles = StyleSheet.create({
   },
   summaryFeelLabel: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '700' },
   summaryFeelValue: { color: theme.colors.text, fontSize: 24, fontWeight: '700' },
+  summaryMap: {
+    height: 160,
+    borderRadius: theme.radius.md,
+    marginTop: 8,
+  },
+  notesInput: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surfaceAlt,
+    color: theme.colors.text,
+    minHeight: 74,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    textAlignVertical: 'top',
+  },
+  reviewToggleRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  pillButton: {
+    minWidth: 72,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  pillButtonOn: {
+    backgroundColor: theme.colors.accentSoft,
+    borderColor: theme.colors.accent,
+  },
+  pillButtonOff: {
+    backgroundColor: theme.colors.surfaceAlt,
+    borderColor: theme.colors.border,
+  },
+  pillButtonText: { fontSize: 14, fontWeight: '800' },
+  pillButtonTextOn: { color: theme.colors.accent },
+  pillButtonTextOff: { color: theme.colors.textMuted },
 });
