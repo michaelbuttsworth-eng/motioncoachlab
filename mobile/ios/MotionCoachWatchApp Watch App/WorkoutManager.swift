@@ -101,6 +101,8 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
       onMain {
         self.watchReachable = session.isReachable
       }
+      // Ask phone for current workout state when watch app becomes active.
+      sendWatchEvent(type: "request_phone_state")
     }
   }
 
@@ -133,14 +135,38 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
   }
 
   func startDefaultGuidedRun() {
-    var legs: [GuidedLeg] = []
-    legs.append(GuidedLeg(phase: "warmup", label: "Warm-up", durationSec: 300, intervalCurrent: 0, intervalTotal: 8))
-    for idx in 1...8 {
-      legs.append(GuidedLeg(phase: "run", label: "Run \(idx)/8", durationSec: 60, intervalCurrent: idx, intervalTotal: 8))
-      legs.append(GuidedLeg(phase: "walk", label: "Walk \(idx)/8", durationSec: 90, intervalCurrent: idx, intervalTotal: 8))
-    }
-    legs.append(GuidedLeg(phase: "cooldown", label: "Cool-down", durationSec: 300, intervalCurrent: 8, intervalTotal: 8))
+    let legs = buildGuidedLegs(config: nil)
     beginCountdown(mode: .run, guidedLegs: legs)
+  }
+
+  private func buildGuidedLegs(config: [String: Any]?) -> [GuidedLeg] {
+    let warmupMin = max(0, intValue(config?["warmup"], fallback: 5))
+    let runMin = max(1, intValue(config?["run"], fallback: 1))
+    let walkMin = max(0, intValue(config?["walk"], fallback: 1))
+    let repeats = max(1, intValue(config?["repeats"], fallback: 8))
+    let cooldownMin = max(0, intValue(config?["cooldown"], fallback: 5))
+
+    var legs: [GuidedLeg] = []
+    if warmupMin > 0 {
+      legs.append(GuidedLeg(phase: "warmup", label: "Warm-up", durationSec: warmupMin * 60, intervalCurrent: 0, intervalTotal: repeats))
+    }
+    for idx in 1...repeats {
+      legs.append(GuidedLeg(phase: "run", label: "Run \(idx)/\(repeats)", durationSec: runMin * 60, intervalCurrent: idx, intervalTotal: repeats))
+      if idx < repeats && walkMin > 0 {
+        legs.append(GuidedLeg(phase: "walk", label: "Walk \(idx)/\(repeats)", durationSec: walkMin * 60, intervalCurrent: idx, intervalTotal: repeats))
+      }
+    }
+    if cooldownMin > 0 {
+      legs.append(GuidedLeg(phase: "cooldown", label: "Cool-down", durationSec: cooldownMin * 60, intervalCurrent: repeats, intervalTotal: repeats))
+    }
+    return legs
+  }
+
+  private func intValue(_ raw: Any?, fallback: Int) -> Int {
+    if let n = raw as? NSNumber { return Int(round(n.doubleValue)) }
+    if let d = raw as? Double { return Int(round(d)) }
+    if let i = raw as? Int { return i }
+    return fallback
   }
 
   private func beginCountdown(mode: WorkoutMode, guidedLegs: [GuidedLeg]) {
@@ -196,7 +222,14 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
       // Accept a phone-provided start time from much earlier so opening the watch app mid-run
       // mirrors the in-progress session instead of restarting a fresh timer.
       if let provided = startedAt, provided <= now.addingTimeInterval(1), provided >= now.addingTimeInterval(-12 * 60 * 60) {
-        start = provided
+        if !guidedLegs.isEmpty {
+          let totalGuidedSec = guidedLegs.reduce(0) { $0 + $1.durationSec }
+          let age = now.timeIntervalSince(provided)
+          // Guard against stale queued commands from old sessions.
+          start = age > Double(totalGuidedSec + 120) ? now : provided
+        } else {
+          start = provided
+        }
       } else {
         start = now
       }
@@ -320,6 +353,10 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
       self.reviewFeel = ""
       self.statusText = "Ready"
     }
+  }
+
+  func requestPhoneStateSync() {
+    sendWatchEvent(type: "request_phone_state")
   }
 
   private func startTickTimer() {
@@ -630,18 +667,24 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
           self.startSimpleWorkout(mode: .walk)
         }
       case "start_guided":
+        let cfg = message["guidedConfig"] as? [String: Any]
+        let legs = self.buildGuidedLegs(config: cfg)
         if (message["skipCountdown"] as? Bool) == true {
-          var legs: [GuidedLeg] = []
-          legs.append(GuidedLeg(phase: "warmup", label: "Warm-up", durationSec: 300, intervalCurrent: 0, intervalTotal: 8))
-          for idx in 1...8 {
-            legs.append(GuidedLeg(phase: "run", label: "Run \(idx)/8", durationSec: 60, intervalCurrent: idx, intervalTotal: 8))
-            legs.append(GuidedLeg(phase: "walk", label: "Walk \(idx)/8", durationSec: 90, intervalCurrent: idx, intervalTotal: 8))
-          }
-          legs.append(GuidedLeg(phase: "cooldown", label: "Cool-down", durationSec: 300, intervalCurrent: 8, intervalTotal: 8))
           let startedAt = Self.parseStartDate(message["startedAtEpoch"])
           self.startWorkout(mode: .run, guidedLegs: legs, startedAt: startedAt)
         } else {
-          self.startDefaultGuidedRun()
+          self.beginCountdown(mode: .run, guidedLegs: legs)
+        }
+      case "phone_state":
+        let phoneRunning = (message["isRunning"] as? Bool) == true
+        if phoneRunning && !self.isRunning {
+          let modeRaw = (message["mode"] as? String) ?? "run"
+          let phoneMode: WorkoutMode = modeRaw == "walk" ? .walk : .run
+          let guided = (message["guided"] as? Bool) == true
+          let cfg = message["guidedConfig"] as? [String: Any]
+          let legs = guided ? self.buildGuidedLegs(config: cfg) : []
+          let startedAt = Self.parseStartDate(message["startedAtEpoch"])
+          self.startWorkout(mode: phoneMode, guidedLegs: legs, startedAt: startedAt)
         }
       case "pause":
         self.pause()

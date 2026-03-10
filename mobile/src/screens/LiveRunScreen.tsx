@@ -49,6 +49,14 @@ type PostRunReview = {
   notes: string;
 };
 
+type GuidedConfig = {
+  warmup: number;
+  run: number;
+  walk: number;
+  repeats: number;
+  cooldown: number;
+};
+
 type Coord = { latitude: number; longitude: number; ts: number; accuracy?: number; speed?: number | null };
 
 const CUE_AUDIO_ASSETS: Record<string, number> = {
@@ -324,6 +332,17 @@ export default function LiveRunScreen({
       blockProgress,
       intervalCurrent: 0,
       intervalTotal: Math.max(1, totalRuns),
+    };
+  };
+
+  const currentGuidedConfig = (): GuidedConfig => {
+    const base = intervalPlan || { warmup: 5, run: 1, walk: 1.5, repeats: 8, cooldown: 5 };
+    return {
+      warmup: testWarmupMin,
+      run: Number(base.run || 1),
+      walk: Number(base.walk || 1.5),
+      repeats: Number(base.repeats || 8),
+      cooldown: Number(base.cooldown || 5),
     };
   };
 
@@ -780,8 +799,7 @@ export default function LiveRunScreen({
             const dist = Math.max(0, Number(payload.distanceM || latestDistanceRef.current || 0));
             const mergeStats = createSegmentStats();
             const merged = mergePoints(pointsRef.current, BG_POINTS, mergeStats);
-            const route = merged
-              .slice(0, 500)
+            const route = downsampleRoute(merged, 1200)
               .map((p) => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`)
               .join(';');
             const endedMode: SessionMode = payload.mode === 'walk' ? 'walk' : 'run';
@@ -827,6 +845,22 @@ export default function LiveRunScreen({
             setMsg('Watch workout saved. Review and save check-in.');
             setRouteCoords(merged);
           }
+          return;
+        }
+
+        if (t === 'request_phone_state') {
+          const running = !!startedAt && !isStopping;
+          sendWatchPayload({
+            type: 'phone_state',
+            isRunning: running,
+            isPaused,
+            mode: activeMode,
+            guided: guidedSession,
+            elapsedSec: seconds,
+            distanceM,
+            startedAtEpoch: startedAt ? startedAt / 1000 : undefined,
+            guidedConfig: guidedSession ? currentGuidedConfig() : undefined,
+          }).catch(() => null);
           return;
         }
 
@@ -928,8 +962,7 @@ export default function LiveRunScreen({
           const dist = Math.max(0, Number(payload.distanceM || latestDistanceRef.current || 0));
           const mergeStats = createSegmentStats();
           const merged = mergePoints(pointsRef.current, BG_POINTS, mergeStats);
-          const route = merged
-            .slice(0, 500)
+          const route = downsampleRoute(merged, 1200)
             .map((p) => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`)
             .join(';');
           const endedMode: SessionMode = payload.mode === 'walk' ? 'walk' : 'run';
@@ -1029,7 +1062,7 @@ export default function LiveRunScreen({
       .catch(() => null);
     sendWatchPayload({ type: 'request_state' }).catch(() => null);
     return () => unsub();
-  }, [activeMode, startedAt, userId, backgroundMode]);
+  }, [activeMode, startedAt, userId, backgroundMode, isStopping, isPaused, guidedSession, seconds, distanceM, intervalPlan, testWarmupMin]);
 
   useEffect(() => {
     return () => {
@@ -1700,6 +1733,7 @@ export default function LiveRunScreen({
         type: guided ? 'start_guided' : mode === 'walk' ? 'start_walk' : 'start_run',
         skipCountdown: true,
         startedAtEpoch: startEpoch,
+        guidedConfig: guided ? currentGuidedConfig() : undefined,
       }).catch(() => null);
       if (guided) {
         await scheduleCues(s.id);
@@ -1835,8 +1869,7 @@ export default function LiveRunScreen({
       const distanceStats = createSegmentStats();
       const mergedDistance = computeDistance(merged, distanceStats);
       const durationSec = stoppedDuration;
-      const route = merged
-        .slice(0, 500)
+      const route = downsampleRoute(merged, 1200)
         .map((p) => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`)
         .join(';');
 
@@ -2273,6 +2306,20 @@ function mergePoints(fg: Coord[], bg: Coord[], stats?: SegmentStats): Coord[] {
       last = p;
     }
   }
+  return out;
+}
+
+function downsampleRoute(points: Coord[], maxPoints: number): Coord[] {
+  if (points.length <= maxPoints) return points;
+  if (maxPoints <= 2) return [points[0], points[points.length - 1]];
+  const out: Coord[] = [points[0]];
+  const span = points.length - 1;
+  const step = span / (maxPoints - 1);
+  for (let i = 1; i < maxPoints - 1; i += 1) {
+    const idx = Math.min(span - 1, Math.max(1, Math.round(i * step)));
+    out.push(points[idx]);
+  }
+  out.push(points[points.length - 1]);
   return out;
 }
 
