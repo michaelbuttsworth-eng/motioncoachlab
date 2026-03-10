@@ -10,12 +10,21 @@ import {
   MobileProgress,
   MobileUpcomingWorkout,
 } from '../lib/api';
+import { UnitSystem } from '../lib/units';
 import { shadow, theme } from '../ui/theme';
 
 type WeekStatus = { dayIso: string; ran: boolean; plannedRun: boolean; missedPlanned: boolean };
 type WeekRow = { title: string; subtitle: string; days: WeekStatus[] };
 
-export default function ProgressScreen({ userId }: { userId: number }) {
+export default function ProgressScreen({
+  userId,
+  isActive = true,
+  unitSystem: _unitSystem,
+}: {
+  userId: number;
+  isActive?: boolean;
+  unitSystem: UnitSystem;
+}) {
   const [data, setData] = useState<MobileProgress | null>(null);
   const [nextWorkouts, setNextWorkouts] = useState<MobileUpcomingWorkout[]>([]);
   const [todayWorkout, setTodayWorkout] = useState<MobileUpcomingWorkout | null>(null);
@@ -75,8 +84,9 @@ export default function ProgressScreen({ userId }: { userId: number }) {
   };
 
   useEffect(() => {
+    if (!isActive) return;
     load();
-  }, [userId]);
+  }, [userId, isActive]);
 
   const todayIso = localIsoDate();
   const ranToday = history.some((it) => toIso(toLocalSessionDate(it.started_at)) === todayIso);
@@ -92,12 +102,48 @@ export default function ProgressScreen({ userId }: { userId: number }) {
     const v = Number((data as any).completed_week_runs);
     return Number.isFinite(v) ? Math.max(0, v) : 0;
   }, [data]);
-  const plannedTotalRunsRaw = Number((data as any)?.planned_total_runs);
-  const completedPlannedRunsRaw = Number((data as any)?.completed_planned_runs);
-  const hasPlanRunCounts = Number.isFinite(plannedTotalRunsRaw) && Number.isFinite(completedPlannedRunsRaw) && plannedTotalRunsRaw > 0;
-  const plannedTotalRuns = hasPlanRunCounts ? Math.max(0, plannedTotalRunsRaw) : 0;
-  const completedPlannedRuns = hasPlanRunCounts ? Math.min(plannedTotalRuns, Math.max(0, completedPlannedRunsRaw)) : 0;
-  const totalPlanCompletion = Math.max(0, Math.min(100, Math.round(Number(data?.plan_adherence_pct || 0))));
+  const weekPlanStats = useMemo(() => {
+    const currentWeek = weekRows[0];
+    if (!currentWeek) {
+      return { planned: plannedThisWeekToDate, completed: ranThisWeekToDate };
+    }
+    const plannedDays = currentWeek.days.filter((d) => d.plannedRun).map((d) => d.dayIso);
+    const runDays = currentWeek.days.filter((d) => d.ran).map((d) => d.dayIso);
+    return { planned: plannedDays.length, completed: matchPlannedToRuns(plannedDays, runDays, 2) };
+  }, [weekRows, plannedThisWeekToDate, ranThisWeekToDate]);
+  const plannedThisWeek = weekPlanStats.planned;
+  const ranThisWeek = weekPlanStats.completed;
+  const onTrackPct = useMemo(() => {
+    if (plannedThisWeek > 0) {
+      return Math.max(0, Math.min(100, Math.round((ranThisWeek / plannedThisWeek) * 100)));
+    }
+    return 100;
+  }, [plannedThisWeek, ranThisWeek]);
+  const onTrackLabel =
+    plannedThisWeek <= 0
+      ? 'Rest & Recover'
+      : ranThisWeek >= plannedThisWeek
+      ? 'On Track'
+      : ranThisWeek === 0
+      ? 'Getting Started'
+      : 'Building Momentum';
+  const currentStreakWeeks = useMemo(() => {
+    let streak = 0;
+    for (const w of weekRows) {
+      const planned = w.days.filter((d) => d.plannedRun).length;
+      if (planned === 0) continue;
+      const missed = w.days.some((d) => d.missedPlanned);
+      if (missed) break;
+      streak += 1;
+    }
+    return streak;
+  }, [weekRows]);
+  const nextBestAction = useMemo(() => {
+    if (plannedThisWeek <= 0) return 'This week has no planned sessions. Focus on recovery and be ready for your next run.';
+    const remaining = Math.max(0, plannedThisWeek - ranThisWeek);
+    if (remaining <= 0) return 'Great week. Keep momentum by completing your next scheduled workout.';
+    return `Complete ${remaining} more ${remaining === 1 ? 'run' : 'runs'} by Sunday to stay on track.`;
+  }, [plannedThisWeek, ranThisWeek]);
 
   return (
     <ScrollView style={styles.wrap} contentContainerStyle={styles.content}>
@@ -148,18 +194,28 @@ export default function ProgressScreen({ userId }: { userId: number }) {
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Plan Progress</Text>
-            <ProgressBar
-              label="Total plan completion"
-              pct={totalPlanCompletion}
-              valueText={hasPlanRunCounts ? `${completedPlannedRuns}/${plannedTotalRuns}` : `${totalPlanCompletion}%`}
-            />
-            {plannedThisWeekToDate > 0 ? <Text style={styles.meta}>{ranThisWeekToDate}/{plannedThisWeekToDate} planned runs completed this week</Text> : null}
-            <ProgressBar label="Schedule timing" pct={data.on_time_completion_pct} />
-            <ProgressBar label="Weekly consistency" pct={data.consistency_score} />
-            <Text style={styles.meta}>
-              Load trend: {data.training_load_trend_pct > 0 ? '+' : ''}
-              {data.training_load_trend_pct}% ({data.training_load_trend_label})
+            <View style={styles.trackHeader}>
+              <Text style={styles.trackLabel}>{onTrackLabel}</Text>
+              <Text style={styles.trackValue}>{onTrackPct}%</Text>
+            </View>
+            <Text style={styles.trackSub}>
+              {plannedThisWeek > 0
+                ? `You completed ${ranThisWeek} of ${plannedThisWeek} planned sessions this week.`
+                : 'No planned sessions this week.'}
             </Text>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${onTrackPct}%` }]} />
+            </View>
+            <View style={styles.sep} />
+            <Stat
+              label="Sessions done (this week)"
+              value={plannedThisWeek > 0 ? `${ranThisWeek}/${plannedThisWeek}` : `${ranThisWeek}`}
+            />
+            <Stat label="Current streak" value={`${currentStreakWeeks} ${currentStreakWeeks === 1 ? 'week' : 'weeks'}`} />
+            <View style={styles.nextActionBox}>
+              <Text style={styles.nextActionTitle}>Next best action</Text>
+              <Text style={styles.meta}>{nextBestAction}</Text>
+            </View>
           </View>
 
           <View style={styles.card}>
@@ -199,21 +255,6 @@ function localIsoDate(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function ProgressBar({ label, pct, valueText }: { label: string; pct: number; valueText?: string }) {
-  const clamped = Math.max(0, Math.min(100, Math.round(pct)));
-  return (
-    <View style={styles.progressWrap}>
-      <View style={styles.progressHead}>
-        <Text style={styles.progressLabel}>{label}</Text>
-        <Text style={styles.progressValue}>{valueText || `${clamped}%`}</Text>
-      </View>
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${clamped}%` }]} />
-      </View>
-    </View>
-  );
-}
-
 function WeekDots({
   title,
   subtitle,
@@ -232,36 +273,43 @@ function WeekDots({
         <Text style={styles.weekSubInline}>• {subtitle}</Text>
       </View>
       <View style={styles.dotRow}>
-        {days.map((d, idx) => (
-          <View
-            key={`${title}-${d.dayIso}`}
-            style={[
-              styles.dot,
-              d.ran
-                ? d.plannedRun
-                  ? styles.dotDonePlanned
-                  : styles.dotDoneExtra
-                : d.missedPlanned
-                ? styles.dotMissedPlanned
-                : styles.dotNeutral,
-            ]}
-          >
-            <Text
+        {days.map((d, idx) => {
+          const plannedUpcoming = d.plannedRun && !d.ran && !d.missedPlanned;
+          return (
+            <View
+              key={`${title}-${d.dayIso}`}
               style={[
-                styles.dotText,
+                styles.dot,
                 d.ran
                   ? d.plannedRun
-                    ? styles.dotTextDonePlanned
-                    : styles.dotTextDoneExtra
+                    ? styles.dotDonePlanned
+                    : styles.dotDoneExtra
                   : d.missedPlanned
-                  ? styles.dotTextMissedPlanned
-                  : styles.dotTextNeutral,
+                  ? styles.dotMissedPlanned
+                  : plannedUpcoming
+                  ? styles.dotPlanned
+                  : styles.dotNeutral,
               ]}
             >
-              {labels[idx]}
-            </Text>
-          </View>
-        ))}
+              <Text
+                style={[
+                  styles.dotText,
+                  d.ran
+                    ? d.plannedRun
+                      ? styles.dotTextDonePlanned
+                      : styles.dotTextDoneExtra
+                    : d.missedPlanned
+                    ? styles.dotTextMissedPlanned
+                    : plannedUpcoming
+                    ? styles.dotTextPlanned
+                    : styles.dotTextNeutral,
+                ]}
+              >
+                {labels[idx]}
+              </Text>
+            </View>
+          );
+        })}
       </View>
     </View>
   );
@@ -297,6 +345,30 @@ function isoDayNumber(iso: string): number {
   const [y, m, d] = iso.split('-').map((v) => Number(v));
   if (!y || !m || !d) return 0;
   return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+}
+
+function matchPlannedToRuns(plannedDays: string[], runDays: string[], graceDays = 2): number {
+  const sortedPlan = [...plannedDays].sort();
+  const sortedRuns = [...runDays].sort();
+  const used = new Array(sortedRuns.length).fill(false);
+  let completed = 0;
+  for (const planDay of sortedPlan) {
+    const planNum = isoDayNumber(planDay);
+    let matched = -1;
+    for (let i = 0; i < sortedRuns.length; i += 1) {
+      if (used[i]) continue;
+      const runNum = isoDayNumber(sortedRuns[i]);
+      if (runNum >= planNum && runNum <= planNum + graceDays) {
+        matched = i;
+        break;
+      }
+    }
+    if (matched >= 0) {
+      used[matched] = true;
+      completed += 1;
+    }
+  }
+  return completed;
 }
 
 function toIso(d: Date): string {
@@ -432,12 +504,21 @@ const styles = StyleSheet.create({
   statRow: { flexDirection: 'row', justifyContent: 'space-between' },
   statLabel: { color: theme.colors.textMuted },
   statValue: { fontWeight: '700', color: theme.colors.text },
-  progressWrap: { gap: 6 },
-  progressHead: { flexDirection: 'row', justifyContent: 'space-between' },
-  progressLabel: { color: theme.colors.textMuted, fontWeight: '600' },
-  progressValue: { color: theme.colors.text, fontWeight: '700' },
+  trackHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  trackLabel: { color: theme.colors.text, fontWeight: '800', fontSize: 20 },
+  trackValue: { color: theme.colors.accent, fontWeight: '800', fontSize: 24 },
+  trackSub: { color: theme.colors.textMuted, fontSize: 13 },
   progressTrack: { height: 8, borderRadius: 999, backgroundColor: theme.colors.surfaceAlt, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 999, backgroundColor: theme.colors.accent },
+  nextActionBox: {
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surfaceAlt,
+    padding: 10,
+    gap: 4,
+  },
+  nextActionTitle: { color: theme.colors.text, fontWeight: '700', fontSize: 12 },
   weekWrap: { gap: 8 },
   weekHeadInline: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   weekTitle: { color: theme.colors.text, fontWeight: '700' },
@@ -451,14 +532,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
-  dotDonePlanned: { backgroundColor: '#17a95a', borderColor: '#108243', borderWidth: 2.2 },
-  dotDoneExtra: { backgroundColor: '#d9f7ea', borderColor: '#7fd9b2', borderWidth: 1.4 },
+  dotDonePlanned: { backgroundColor: theme.colors.success, borderColor: '#0c7b48', borderWidth: 2.2 },
+  dotDoneExtra: { backgroundColor: theme.colors.successSoft, borderColor: theme.colors.successBorder, borderWidth: 1.4 },
   dotMissedPlanned: { backgroundColor: '#fde8e8', borderColor: '#f5a5a5' },
-  dotNeutral: { backgroundColor: '#f3f6fa', borderColor: theme.colors.border },
+  dotPlanned: { backgroundColor: '#eaf9fd', borderColor: theme.colors.accent, borderWidth: 2.2 },
+  dotNeutral: { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border },
   dotText: { fontSize: 12, fontWeight: '800' },
   dotTextDonePlanned: { color: '#ffffff' },
-  dotTextDoneExtra: { color: '#157a5a' },
+  dotTextDoneExtra: { color: theme.colors.success },
   dotTextMissedPlanned: { color: '#b42318' },
+  dotTextPlanned: { color: theme.colors.accent },
   dotTextNeutral: { color: '#8da0b3' },
   meta: { color: theme.colors.textMuted, fontSize: 12 },
   p: { color: theme.colors.text },
