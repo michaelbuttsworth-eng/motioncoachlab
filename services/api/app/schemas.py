@@ -358,6 +358,7 @@ class MobileHistoryItemOut(BaseModel):
     fatigue: Optional[str] = None
     pain: Optional[str] = None
     session_feel: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class MobileHistoryOut(BaseModel):

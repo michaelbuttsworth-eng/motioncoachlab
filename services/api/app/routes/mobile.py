@@ -183,16 +183,30 @@ def mobile_session_stop(
     session.route_polyline = payload.route_polyline
     session.avg_pace_min_km = avg_pace
 
-    run = models.Run(
-        user_id=session.user_id,
-        source="mobile_gps",
-        source_id=f"mobile-{session_id}",
-        start_time=session.started_at,
-        distance_m=distance_m,
-        duration_s=duration_s,
-    )
-    db.add(run)
-    db.flush()
+    source_id = f"mobile-{session_id}"
+    run = db.get(models.Run, session.run_id) if session.run_id else None
+    if not run:
+        run = (
+            db.query(models.Run)
+            .filter_by(source="mobile_gps", source_id=source_id)
+            .first()
+        )
+    if run:
+        run.user_id = session.user_id
+        run.start_time = session.started_at
+        run.distance_m = distance_m
+        run.duration_s = duration_s
+    else:
+        run = models.Run(
+            user_id=session.user_id,
+            source="mobile_gps",
+            source_id=source_id,
+            start_time=session.started_at,
+            distance_m=distance_m,
+            duration_s=duration_s,
+        )
+        db.add(run)
+        db.flush()
     session.run_id = run.id
 
     db.commit()
@@ -443,7 +457,16 @@ def mobile_history(
 
     run_ids = [r.id for r in rows]
     feedback_by_run: dict[int, models.RunFeedback] = {}
-    for fb in db.query(models.RunFeedback).filter(models.RunFeedback.run_id.in_(run_ids)).all():
+    feedback_rows = (
+        db.query(models.RunFeedback)
+        .filter(models.RunFeedback.run_id.in_(run_ids))
+        .order_by(models.RunFeedback.submitted_at.desc(), models.RunFeedback.id.desc())
+        .all()
+    )
+    for fb in feedback_rows:
+        # Keep the most recent feedback row for each run.
+        if fb.run_id in feedback_by_run:
+            continue
         feedback_by_run[fb.run_id] = fb
 
     device_by_run: dict[int, models.DeviceSession] = {}
@@ -471,6 +494,7 @@ def mobile_history(
                 "fatigue": fb.fatigue if fb else None,
                 "pain": fb.pain if fb else None,
                 "session_feel": fb.session_feel if fb else None,
+                "notes": fb.notes if fb else None,
             }
         )
     return {"user_id": user_id, "items": items}

@@ -17,6 +17,14 @@ def _normalize_database_url(url: str) -> str:
     if cleaned.startswith("postgresql://"):
         cleaned = "postgresql+psycopg://" + cleaned[len("postgresql://") :]
 
+    # Common local typo: sqlite:/./dev.db (or sqlite://./dev.db) -> sqlite:///./dev.db
+    if cleaned.startswith("sqlite:/") and not cleaned.startswith("sqlite:///"):
+        cleaned = "sqlite:///" + cleaned[len("sqlite:/") :].lstrip("/")
+
+    # SQLite URLs are path-sensitive; urlsplit/urlunsplit can collapse slashes.
+    if cleaned.startswith("sqlite:///"):
+        return cleaned
+
     # Remove accidental quote/whitespace in db name/path from malformed env input.
     parts = urlsplit(cleaned)
     path = (parts.path or "").strip().strip('"').strip("'")
