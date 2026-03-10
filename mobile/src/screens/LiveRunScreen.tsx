@@ -797,6 +797,7 @@ export default function LiveRunScreen({
             if (!sid) return;
             const dur = Math.max(1, Number(payload.elapsedSec || latestSecondsRef.current || 1));
             const dist = Math.max(0, Number(payload.distanceM || latestDistanceRef.current || 0));
+            const watchWantsReview = payload.reviewPending === true;
             const mergeStats = createSegmentStats();
             const merged = mergePoints(pointsRef.current, BG_POINTS, mergeStats);
             const route = downsampleRoute(merged, 1200)
@@ -818,16 +819,22 @@ export default function LiveRunScreen({
             watchLastMessageMsRef.current = 0;
             const endedAtMs = Date.now();
             setLastRunSummary({ mode: endedMode, durationSec: dur, distanceM: dist, endedAtMs });
-            setPostRunReview({
-              sessionId: sid,
-              mode: endedMode,
-              durationSec: dur,
-              distanceM: dist,
-              endedAtMs,
-              route: merged,
-              writeHealth: true,
-              notes: '',
-            });
+            if (watchWantsReview) {
+              // Stopped on watch: keep review UX on watch only.
+              setPostRunReview(null);
+            } else {
+              // Stopped on phone (or watch indicated no review): keep review UX on phone.
+              setPostRunReview({
+                sessionId: sid,
+                mode: endedMode,
+                durationSec: dur,
+                distanceM: dist,
+                endedAtMs,
+                route: merged,
+                writeHealth: true,
+                notes: '',
+              });
+            }
             watcherRef.current?.remove();
             clearCueTimers();
             cancelCueNotifications().catch(() => null);
@@ -842,7 +849,7 @@ export default function LiveRunScreen({
             endLiveActivity(sid, dur, dist).catch(() => null);
             setSessionId(sid);
             latestSessionRef.current = sid;
-            setMsg('Watch workout saved. Review and save check-in.');
+            setMsg(watchWantsReview ? 'Watch workout saved.' : 'Watch workout saved. Review and save check-in.');
             setRouteCoords(merged);
           }
           return;
