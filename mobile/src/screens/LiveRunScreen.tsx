@@ -156,6 +156,7 @@ export default function LiveRunScreen({
   const pauseStartedAtRef = useRef<number | null>(null);
   const lastPointTsRef = useRef<number | null>(null);
   const stalledWarnedRef = useRef(false);
+  const gpsRecoveryInFlightRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
   const speechAudioModeRef = useRef(false);
   const notifReceivedSubRef = useRef<any>(null);
@@ -1133,9 +1134,27 @@ export default function LiveRunScreen({
         stalledWarnedRef.current = true;
         logDiag('gps stalled >20s');
       }
+      if (gapMs > 30000 && !gpsRecoveryInFlightRef.current) {
+        gpsRecoveryInFlightRef.current = true;
+        (async () => {
+          logDiag('gps recovery: restarting watcher');
+          try {
+            watcherRef.current?.remove();
+            await startWatcher();
+            if (backgroundMode) await startBackgroundUpdates(activeMode);
+            logDiag('gps recovery: watcher restarted');
+          } catch {
+            logDiag('gps recovery failed');
+          } finally {
+            gpsRecoveryInFlightRef.current = false;
+          }
+        })().catch(() => {
+          gpsRecoveryInFlightRef.current = false;
+        });
+      }
     }, 5000);
     return () => clearInterval(id);
-  }, [startedAt, isPaused]);
+  }, [startedAt, isPaused, backgroundMode, activeMode]);
 
   const elapsed = useMemo(() => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`, [seconds]);
   const distanceLabel = useMemo(() => (distanceM < 1000 ? `${Math.round(distanceM)} m` : `${(distanceM / 1000).toFixed(2)} km`), [distanceM]);

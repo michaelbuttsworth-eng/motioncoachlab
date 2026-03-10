@@ -193,7 +193,9 @@ final class WorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate
 
       let now = Date()
       let start: Date
-      if let provided = startedAt, provided <= now.addingTimeInterval(1), provided >= now.addingTimeInterval(-45) {
+      // Accept a phone-provided start time from much earlier so opening the watch app mid-run
+      // mirrors the in-progress session instead of restarting a fresh timer.
+      if let provided = startedAt, provided <= now.addingTimeInterval(1), provided >= now.addingTimeInterval(-12 * 60 * 60) {
         start = provided
       } else {
         start = now
